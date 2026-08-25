@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <title>МЭШ Помогатор</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* МИНИМАЛЬНЫЕ ПРАВКИ ДЛЯ ИДЕАЛЬНОГО ВИДА (сброс тяжелых стилей из styles.css) */
+        .mshhlpr-popup-header-custom {
+            border: none !important;
+        }
+
+        .mshhlpr-popup-teacher-badge {
+            border: 1px solid #ccc !important;
+            border-radius: 20px !important;
+            box-shadow: none !important;
+            margin: 12px 16px 8px 16px !important;
+            color: #1e5622 !important;
+        }
+
+        .mshhlpr-popup-status-container {
+            border: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            padding: 0 16px 12px 16px !important;
+            margin: 0 !important;
+        }
+
+        .mshhlpr-popup-status-row {
+            justify-content: flex-start !important;
+            gap: 8px;
+            font-weight: normal !important;
+            color: #555 !important;
+            font-size: 12px !important;
+            margin-bottom: 5px;
+        }
+
+        .mshhlpr-universal-toggle-btn {
+            border: 1px solid rgba(0, 0, 0, 0.1) !important;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+            margin-bottom: 10px !important;
+        }
+    </style>
+</head>
+
+<body class="mshhlpr-popup-body-html">
+    <div class="mshhlpr-popup-container">
+
+        <!-- Шапка -->
+        <div class="mshhlpr-popup-header-custom">
+            <span>✨ МЭШ Помогатор</span>
+        </div>
+
+        <!-- Плашка учителя -->
+        <div id="activeTeacherContainer" class="mshhlpr-popup-teacher-badge" style="display: none;">
+            👩‍🏫 <span id="activeTeacherName">...</span>
+        </div>
+
+        <!-- Статусы сети (без громоздких рамок) -->
+        <div class="mshhlpr-popup-status-container" id="networkStatusContainer">
+            <div class="mshhlpr-popup-status-row">
+                <span>Подключение к Интернету:</span>
+                <span id="statusInternet"><span
+                        style="background:#f0f0f0;color:#888;padding:2px 8px;font-size:11px;border-radius:12px;font-weight:600;">⏳
+                        Загрузка</span></span>
+            </div>
+            <div class="mshhlpr-popup-status-row">
+                <span>Подключение к МЭШ:</span>
+                <span id="statusMesh"><span
+                        style="background:#f0f0f0;color:#888;padding:2px 8px;font-size:11px;border-radius:12px;font-weight:600;">⏳
+                        Загрузка</span></span>
+            </div>
+            <div class="mshhlpr-popup-status-row">
+                <span>Токен Госуслуг:</span>
+                <span id="statusSession"><span
+                        style="background:#f0f0f0;color:#888;padding:2px 8px;font-size:11px;border-radius:12px;font-weight:600;">⏳
+                        Загрузка</span></span>
+            </div>
+        </div>
+
+        <!-- Тумблеры -->
+        <div class="mshhlpr-popup-body" style="padding-top: 0; padding-bottom: 0;">
+            <div class="mshhlpr-universal-toggle-btn">
+                <span class="mshhlpr-universal-toggle-text">Включить расширение</span>
+                <label class="mshhlpr-ios-switch">
+                    <input type="checkbox" id="extensionToggle">
+                    <span class="mshhlpr-ios-slider"></span>
+                </label>
+            </div>
+        </div>
+        
+
+        <!-- Подвал -->
+        <div class="mshhlpr-modal-footer mshhlpr-popup-footer"
+            style="border-top: none; background: #e2e2e2; margin-top: 10px;">
+            <div class="mshhlpr-popup-info-text">Автор: <b>Храмцов Андрей</b></div>
+            <div class="mshhlpr-modal-version" id="versionText"
+                style="background: rgba(255,255,255,0.5); border-radius: 4px; padding: 2px 6px;">Загрузка...</div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>

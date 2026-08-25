@@ -1,0 +1,896 @@
+/* styles.css */
+
+/* ==========================================================================
+   БАЗОВЫЕ СТИЛИ РАСШИРЕНИЯ «МЭШ ПОМОГАТОР» (UI-KIT)
+   ========================================================================== */
+
+:root {
+    --mshhlpr-primary-gradient: linear-gradient(135deg, #4caf50, #2e7d32);
+    --mshhlpr-border-radius: 16px;
+    --mshhlpr-overlay-blur: blur(2px);
+    --mshhlpr-control-height: 38px;
+    --mshhlpr-control-padding-x: 14px;
+    --mshhlpr-control-padding-y: 8px;
+    --mshhlpr-switch-width: 40px;
+    --mshhlpr-switch-height: 22px;
+}
+
+/* --- 1. АНИМАЦИИ --- */
+@keyframes mshhlprModalShow {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* --- 2. БАЗОВАЯ РАЗМЕТКА МОДАЛЬНЫХ ОКОН --- */
+.mshhlpr-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.4);
+    backdrop-filter: var(--mshhlpr-overlay-blur);
+    z-index: 999999; 
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.mshhlpr-modal-content {
+    background: #ffffff;
+    border-radius: var(--mshhlpr-border-radius);
+    width: 720px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    animation: mshhlprModalShow 0.3s ease-out; 
+}
+
+/* --- 3. СТРУКТУРНЫЕ БЛОКИ ОКОН --- */
+.mshhlpr-modal-header {
+    background: var(--mshhlpr-primary-gradient);
+    color: white;
+    padding: 18px 25px; 
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.mshhlpr-modal-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.mshhlpr-modal-close:hover {
+    opacity: 1;
+}
+
+.mshhlpr-modal-body {
+    display: flex;
+    padding: 25px 25px 15px 25px;
+    gap: 20px;
+}
+
+.mshhlpr-modal-footer {
+    background-color: #f5f5f5;
+    padding: 12px 25px;
+    display: flex;
+    justify-content: space-between;
+    color: #777;
+    font-size: 12px;
+    border-top: 1px solid #eee;
+}
+
+/* --- 4. ТИПОГРАФИКА И ВНУТРЕННИЕ ЭЛЕМЕНТЫ ОКОН --- */
+.mshhlpr-modal-info {
+    flex: 1;
+}
+
+.mshhlpr-modal-subtitle {
+    text-transform: uppercase;
+    color: #888;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    margin-bottom: 5px;
+}
+
+.mshhlpr-modal-title {
+    color: #2e7d32;
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 15px;
+}
+
+.mshhlpr-modal-desc {
+    color: #444;
+    font-size: 14px;
+    line-height: 1.5;
+    margin-bottom: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.mshhlpr-modal-contacts {
+    color: #444;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.mshhlpr-vk-link {
+    color: #1976d2;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.mshhlpr-vk-link:hover {
+    text-decoration: underline;
+}
+
+.mshhlpr-modal-version {
+    background-color: #e0e0e0;
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: #555;
+}
+
+/* --- 5. БЕЙДЖИ (ТЕГИ/МЕТКИ) --- */
+.mshhlpr-modal-badges {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.mshhlpr-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    width: fit-content;
+}
+
+.mshhlpr-badge-green {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
+}
+
+.mshhlpr-badge-blue {
+    background-color: #e3f2fd;
+    color: #1565c0;
+    border: 1px solid #bbdefb;
+}
+
+/* --- 6. ИЗОБРАЖЕНИЯ И АВАТАРЫ --- */
+.mshhlpr-modal-photo {
+    width: 220px;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.mshhlpr-modal-photo img {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid #4caf50;
+    box-shadow: 0 0 20px rgba(76, 175, 80, 0.4);
+}
+
+.mshhlpr-author-avatar {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 4px !important; 
+    object-fit: cover !important;
+    cursor: pointer !important;
+    pointer-events: auto !important; 
+    transition: transform 0.25s ease !important;
+    border: none !important; 
+    display: block !important;
+    position: relative !important;
+    z-index: 100 !important; 
+    background: transparent !important;
+    outline: none !important;
+}
+
+.mshhlpr-author-avatar:hover {
+    transform: scale(1.4) translateY(-2px) !important; 
+    box-shadow: none !important; 
+    z-index: 9999 !important; 
+}
+
+/* --- 7. СТИЛИ ТУМБЛЕРА РАСШИРЕНИЯ (iOS-Style, строго изолированные) --- */
+
+.mshhlpr-toggle-menu-item {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    padding: 10px 14px !important;
+    background: var(--mshhlpr-primary-gradient) !important;
+    border: none !important;
+    cursor: pointer !important;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    font-size: 14px !important;
+    box-sizing: border-box !important;
+    transition: opacity 0.2s !important;
+}
+
+.mshhlpr-toggle-menu-item:hover {
+    opacity: 0.92 !important;
+}
+
+.mshhlpr-toggle-text {
+    color: white !important;
+    font-weight: 500 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+.mshhlpr-ios-switch {
+    position: relative !important;
+    display: inline-block !important;
+    width: var(--mshhlpr-switch-width) !important;
+    height: var(--mshhlpr-switch-height) !important;
+    flex-shrink: 0 !important;
+    vertical-align: middle !important;
+}
+
+.mshhlpr-ios-switch input {
+    opacity: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+
+.mshhlpr-ios-slider {
+    position: absolute !important;
+    cursor: pointer !important;
+    top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+    background-color: rgba(255, 255, 255, 0.4) !important;
+    transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    border-radius: 22px !important;
+}
+
+.mshhlpr-ios-slider:before {
+    position: absolute !important;
+    content: "" !important;
+    height: 18px !important;
+    width: 18px !important;
+    left: 2px !important;
+    bottom: 2px !important;
+    background-color: white !important;
+    transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    border-radius: 50% !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+}
+
+.mshhlpr-ios-switch input:checked + .mshhlpr-ios-slider {
+    background-color: #ffffff !important; 
+}
+
+.mshhlpr-ios-switch input:checked + .mshhlpr-ios-slider:before {
+    transform: translateX(18px) !important;
+    background-color: #2e7d32 !important;
+}
+
+/* --- 8. СТИЛИ POPUP ОКНА (Градиент на все окно, черный текст) --- */
+
+.mshhlpr-popup-body-html {
+    margin: 0;
+    padding: 0;
+    background: #f5f7fa; /* Светлый фон для попапа */
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: #000000;
+}
+
+.mshhlpr-popup-container {
+    width: 300px;
+    background: transparent;
+    user-select: none;
+    box-sizing: border-box;
+}
+
+.mshhlpr-popup-header-custom {
+    background: var(--mshhlpr-primary-gradient); /* Зеленая шапка */
+    color: #ffffff;
+    padding: 14px 16px;
+    font-size: 15px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #000000;
+}
+
+.mshhlpr-popup-body {
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+}
+
+.mshhlpr-popup-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 16px;
+    background: rgba(0, 0, 0, 0.15);
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.mshhlpr-popup-info-text {
+    font-size: 13px;
+    color: #000000;
+}
+
+.mshhlpr-popup-info-text b {
+    color: #000000;
+}
+
+.mshhlpr-popup-container .mshhlpr-modal-version {
+    background-color: rgba(255, 255, 255, 0.3);
+    color: #000000;
+    width: fit-content;
+    font-weight: 600;
+}
+
+/* --- 9. УНИВЕРСАЛЬНАЯ КНОПКА С ТУМБЛЕРОМ --- */
+.mshhlpr-universal-toggle-btn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    background: var(--mshhlpr-primary-gradient) !important;
+    border: 1px solid #000000 !important; /* Максимально тонкая черная рамка (1 пиксель) */
+    border-radius: 12px !important; 
+    padding: var(--mshhlpr-control-padding-y) var(--mshhlpr-control-padding-x) !important;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+    box-sizing: border-box !important;
+    line-height: 1.2 !important;
+    min-height: 0 !important;
+}
+
+.mshhlpr-universal-toggle-text {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    color: #ffffff !important;
+    margin: 0 !important;
+    white-space: nowrap !important;
+}
+
+/* --- 10. ПЛАШКА УЧИТЕЛЯ В POPUP --- */
+.mshhlpr-popup-teacher-badge {
+    background: #ffffff !important;
+    border: 1px solid #000000 !important;
+    border-radius: 12px !important;
+    padding: 8px 12px !important;
+    margin: 12px 16px 4px 16px !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    color: #2e7d32 !important; /* Мягкий зеленый цвет шрифта */
+    text-align: center !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
+    box-sizing: border-box !important;
+}
+
+/* --- 11. БОКОВАЯ ПАНЕЛЬ ИНСТРУМЕНТОВ ЖУРНАЛА (JOURNAL TOOLS SIDEBAR) --- */
+
+/* Интеграция с родителем: гибкий сдвиг от 230px (на ноутбуках) до 500px (на 4K) */
+.GMR0YmfCRS7L64NE4EFF.mshhlpr-has-sidebar-expanded {
+    padding-right: clamp(230px, 21vw, 500px) !important;
+    transition: padding-right 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-sizing: border-box !important;
+}
+
+.GMR0YmfCRS7L64NE4EFF.mshhlpr-has-sidebar-collapsed {
+    padding-right: 0px !important;
+    transition: padding-right 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.mshhlpr-sidebar-container {
+    position: absolute !important;
+    right: 15px !important;
+    top: 15px !important;
+    background: #ffffff !important;
+    border: 1px solid rgba(0, 0, 0, 0.15) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+    box-sizing: border-box !important;
+    z-index: 10 !important;
+    font-family: inherit !important;
+    overflow: hidden !important;
+}
+
+/* Класс плавного перехода размеров */
+.mshhlpr-sidebar-transition {
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
+                max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
+                border-radius 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.25s ease !important;
+}
+
+/* Развернутое состояние: умеет сжиматься до 220px на малых экранах и расти до 480px на 4K */
+.mshhlpr-sidebar-expanded {
+    width: clamp(220px, 20vw, 480px) !important;
+    height: auto !important;
+    max-height: calc(100% - 30px) !important;
+    border-radius: 14px !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+/* Свернутое состояние */
+.mshhlpr-sidebar-collapsed {
+    width: 44px !important;
+    height: 44px !important;
+    max-height: 44px !important;
+    border-radius: 50% !important;
+    cursor: pointer !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Управление отображением контента */
+.mshhlpr-sidebar-expanded #mshhlpr-sidebar-expanded-content {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: 100% !important;
+}
+
+.mshhlpr-sidebar-expanded #mshhlpr-sidebar-collapsed-content {
+    display: none !important;
+}
+
+.mshhlpr-sidebar-collapsed #mshhlpr-sidebar-expanded-content {
+    display: none !important;
+}
+
+.mshhlpr-sidebar-collapsed #mshhlpr-sidebar-collapsed-content {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    height: 100% !important;
+    font-size: 20px !important;
+    background: var(--mshhlpr-primary-gradient) !important;
+    line-height: 1 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+}
+
+/* Элементы панели */
+#mshhlpr-sidebar-header {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: clamp(10px, 1.2vh, 16px) clamp(12px, 1.2vw, 20px) !important;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+
+/* Заголовок в шапке панели */
+#mshhlpr-sidebar-header .mshhlpr-universal-toggle-text {
+    font-size: clamp(13px, 0.95vw, 18px) !important;
+}
+
+#mshhlpr-sidebar-body {
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    padding: clamp(10px, 1.5vh, 18px);
+    box-sizing: border-box;
+    flex: 1;
+    gap: clamp(8px, 1.2vh, 14px);
+    overflow-y: auto; /* Внутренний скролл при маленькой высоте экрана */
+    max-height: calc(85vh - 60px);
+}
+
+#mshhlpr-mentor-widget {
+    background: #f9f9f9;
+    border: 1px solid #eeeeee;
+    border-radius: 10px;
+    padding: clamp(8px, 1vh, 14px) clamp(10px, 1.2vw, 16px);
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.msh-widget-title {
+    font-size: clamp(11px, 0.75vw, 14px) !important;
+    text-transform: uppercase;
+    color: #777777;
+    margin-bottom: 5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+#mshhlpr-mentor-content {
+    font-size: clamp(13px, 1vw, 18px) !important;
+    color: #333333;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+/* Снятие жестких ограничений с кнопок внутри сайдбара для свободного сжатия */
+#mshhlpr-sidebar-body .mshhlpr-universal-toggle-btn {
+    padding: clamp(5px, 0.8vh, 12px) clamp(6px, 0.8vw, 14px) !important;
+    gap: clamp(4px, 0.5vw, 10px) !important;
+    min-width: 0 !important;
+}
+
+#mshhlpr-sidebar-body .mshhlpr-universal-toggle-text {
+    white-space: normal !important; /* Разрешаем переносы при сильном сжатии */
+    text-align: center !important;
+    line-height: 1.2 !important;
+}
+
+#mshhlpr-tools-widget button {
+    padding: clamp(5px, 0.8vh, 12px) clamp(4px, 0.6vw, 12px) !important;
+    min-width: 0 !important;
+}
+
+#mshhlpr-tools-widget button .mshhlpr-universal-toggle-text {
+    font-size: clamp(10px, 0.8vw, 16px) !important;
+}
+
+/* Адаптивный блок Валидатора */
+#msh-val-head {
+    font-size: clamp(11px, 0.85vw, 17px) !important;
+}
+
+#msh-val-body {
+    font-size: clamp(10px, 0.8vw, 16px) !important;
+}
+
+#msh-val-min {
+    font-size: clamp(11px, 0.8vw, 15px) !important;
+    padding: clamp(2px, 0.4vh, 6px) clamp(4px, 0.4vw, 8px) !important;
+}
+
+#msh-af-btn {
+    font-size: clamp(10px, 0.8vw, 16px) !important;
+    padding: clamp(5px, 0.8vh, 12px) !important;
+}
+
+/* Дзен-выделение строчек */
+.mesh-zh {
+    background: #ff9800 !important;
+    color: #ffffff !important;
+    border-radius: 4px;
+}
+.mesh-zh * {
+    background: transparent !important;
+    color: #ffffff !important;
+}
+
+/* --- 12. ИНТЕРФЕЙС ЖУРНАЛА И ВАЛИДАТОРА (journalTools) --- */
+@keyframes mshhlpr-shake { 0%,100%{transform:translateX(0)} 15%,45%,75%{transform:translateX(-2px)} 30%,60%,80%{transform:translateX(2px)} }
+@keyframes mshhlpr-grad { 0%{background-position:0 50%} 50%{background-position:100% 50%} 100%{background-position:0 50%} }
+@keyframes mshhlpr-btn-pop { 0%{transform:scale(1)} 50%{transform:scale(1.04);background-color:#d35400;box-shadow:0 4px 10px rgba(211,84,0,0.5)} 100%{transform:scale(1)} }
+@keyframes mshhlpr-spin { 100% { transform: rotate(360deg); } }
+
+/* Подсветки оценок */
+.mshhlpr-bg-error { background-color: #ff0000 !important; border-radius: 4px; }
+.mshhlpr-rainbow-bg { background: linear-gradient(270deg,#ffadad,#ffd6a5,#fdffb6,#caffbf,#9bf6ff,#a0c4ff,#bdb2ff,#ffc6ff); background-size: 400% 400%; animation: mshhlpr-grad 4s ease infinite; color: #000 !important; border-radius: 4px; font-weight: 700; padding: 0 4px; }
+.mshhlpr-btn-animated { animation: mshhlpr-btn-pop 0.6s cubic-bezier(0.175,0.885,0.32,1.275); }
+.mshhlpr-btn-danger { background-color: #e74c3c !important; color: #fff; }
+
+/* Состояния итоговых */
+td.mshhlpr-final-correct, td.mshhlpr-final-missing, td.mshhlpr-final-wrong { border: none !important; position: relative !important; cursor: help !important; }
+td.mshhlpr-final-correct { background-color: #4caf50 !important; }
+td.mshhlpr-final-missing { background-color: #ff9800 !important; }
+td.mshhlpr-final-wrong { background-color: #f44336 !important; animation: mshhlpr-shake .5s; }
+td.mshhlpr-final-correct *, td.mshhlpr-final-missing *, td.mshhlpr-final-wrong * { background: 0 0 !important; background-color: transparent !important; color: black !important; font-weight: 700 !important; box-shadow: none !important; }
+
+/* Общие элементы модалок (Карточка, Списки) */
+.mshhlpr-loader-icon { font-size: 30px; animation: mshhlpr-spin 1s linear infinite; margin-bottom: 15px; color: #2e7d32; display: inline-block; }
+.mshhlpr-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 25px; }
+.mshhlpr-info-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+.mshhlpr-info-title { margin: 0 0 15px 0; color: #777; font-size: 14px; text-transform: uppercase; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+.mshhlpr-info-row { display: grid; grid-template-columns: auto 1fr; gap: 10px 15px; font-size: 15px; }
+.mshhlpr-info-label { color: #999; }
+.mshhlpr-parent-card { background: #fdfdfd; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+
+/* --- 13. МОНИТОРИНГ СЕТЕВОГО СТАТУСА (checkStatus) --- */
+
+/* Базовое позиционирование для тоста (переопределяет top: 20px от основного сайдбара) */
+#mshhlpr-status-toast {
+    position: fixed !important;
+    bottom: 20px !important;
+    right: 20px !important;
+    top: auto !important;
+    z-index: 9999 !important;
+}
+
+/* Размеры для развернутого состояния (специально для тоста) */
+#mshhlpr-status-toast.mshhlpr-sidebar-expanded {
+    width: 320px !important;
+    height: 120px !important;
+    border-radius: 12px !important;
+}
+
+/* Кругляшок для свернутого состояния */
+#mshhlpr-status-toast.mshhlpr-sidebar-collapsed {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 50% !important;
+}
+
+/* Логика скрытия/отображения контента внутри тоста */
+#mshhlpr-status-toast.mshhlpr-sidebar-expanded #mshhlpr-status-expanded-content {
+    display: flex !important;
+}
+#mshhlpr-status-toast.mshhlpr-sidebar-expanded #mshhlpr-status-collapsed-content {
+    display: none !important;
+}
+
+#mshhlpr-status-toast.mshhlpr-sidebar-collapsed #mshhlpr-status-expanded-content {
+    display: none !important;
+}
+#mshhlpr-status-toast.mshhlpr-sidebar-collapsed #mshhlpr-status-collapsed-content {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    height: 100% !important;
+    font-size: 24px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+}
+
+/* Красная тема с белым текстом */
+.mshhlpr-status-red {
+    background: #e74c3c !important;
+    border: 1px solid #c0392b !important;
+    color: #ffffff !important;
+    box-shadow: 0 6px 15px rgba(231, 76, 60, 0.4) !important;
+}
+.mshhlpr-status-red * {
+    color: #ffffff !important;
+}
+
+/* Шапка и тело текстового блока */
+.mshhlpr-status-red-header {
+    background: rgba(0, 0, 0, 0.1) !important;
+    padding: 10px 14px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    cursor: pointer !important;
+    font-weight: 700 !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+}
+.mshhlpr-status-red-body {
+    padding: 12px 14px !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+}
+
+/* --- 14. ПАНЕЛЬ ИНСТРУМЕНТОВ И QR-ГЕНЕРАТОР --- */
+.mshhlpr-tools-panel { display: flex !important; gap: 8px !important; margin-right: 15px !important; align-items: center !important; border-right: 1px solid rgba(0,0,0,0.1) !important; padding-right: 15px !important; }
+.mshhlpr-tool-btn { background: var(--mshhlpr-primary-gradient) !important; border: 1px solid #000000 !important; border-radius: 8px !important; padding: 4px 10px !important; cursor: pointer !important; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; transition: transform 0.2s !important; }
+.mshhlpr-tool-btn:hover { transform: translateY(-1px) !important; opacity: 0.95 !important; }
+.mshhlpr-tool-btn svg { stroke: #ffffff !important; } 
+.mshhlpr-tool-btn span { color: #ffffff !important; font-size: 9px !important; font-weight: 700 !important; text-align: center; margin-top: 2px; }
+
+.mshhlpr-modal-content .mshhlpr-universal-toggle-btn { transition: transform 0.2s, opacity 0.2s !important; }
+.mshhlpr-modal-content .mshhlpr-universal-toggle-btn:hover { transform: translateY(-1px) !important; opacity: 0.95 !important; }
+
+/* Утилиты и поля ввода */
+.mshhlpr-hidden { display: none !important; }
+.mshhlpr-qr-input-field { flex: 1 !important; padding: 10px !important; border: 1px solid #ddd !important; border-radius: 8px !important; outline: none !important; font-family: inherit !important; font-size: 14px !important; text-align: center !important; transition: 0.2s !important; box-sizing: border-box !important; }
+.mshhlpr-qr-input-field:focus { border-color: #2e7d32 !important; box-shadow: 0 0 5px rgba(46, 125, 50, 0.3) !important; }
+
+/* Каркас модалки QR */
+.mshhlpr-qr-header { flex-shrink: 0; }
+.mshhlpr-qr-body { display: flex; flex-direction: column; padding: 25px; gap: 15px; flex: 1; justify-content: space-between; min-height: 0; }
+.mshhlpr-qr-inputs { display: flex; flex-direction: column; gap: 10px; width: 100%; flex-shrink: 0; }
+.mshhlpr-qr-input-row { display: flex; gap: 10px; width: 100%; }
+.mshhlpr-qr-action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; flex-shrink: 0; }
+
+/* Кнопки действий */
+.mshhlpr-qr-btn-small { cursor: pointer !important; justify-content: center !important; padding: 0 16px !important; border-radius: 8px !important; font-size: 13px !important; }
+.mshhlpr-qr-btn-action { cursor: pointer !important; justify-content: center !important; border-radius: 8px !important; font-size: 12px !important; font-weight: 700 !important; padding: 10px 4px !important; }
+
+/* Контейнер превью и центрирование QR */
+.mshhlpr-qr-preview-container { background: #fafafa; padding: 15px; border-radius: 12px; border: 1px dashed #ccc; display: flex; flex-direction: column; justify-content: center; align-items: center; flex: 1; width: 100%; box-sizing: border-box; overflow: hidden; }
+.mshhlpr-qr-label-preview { font-size: 16px !important; font-weight: 700 !important; color: #2c3e50 !important; text-align: center !important; width: 100% !important; word-break: break-word !important; margin: 0 0 10px 0 !important; display: block !important; }
+.mshhlpr-qr-loader { color: #888; font-size: 14px; font-weight: 600; text-align: center; }
+
+/* Идеальное центрирование Canvas */
+.mshhlpr-qr-canvas { width: 250px !important; height: 250px !important; max-width: 100% !important; object-fit: contain !important; margin: 0 auto !important; display: block !important; align-self: center !important; }
+
+/* ==========================================================================
+   КНОПКИ И МОДИФИКАТОРЫ (UI-KIT)
+   ========================================================================== */
+
+/* Универсальная кнопка (замена громоздким инлайн-стилям) */
+.mshhlpr-btn,
+.mshhlpr-action-btn-primary,
+.mshhlpr-action-btn-secondary {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    height: var(--mshhlpr-control-height) !important;
+    min-height: var(--mshhlpr-control-height) !important;
+    padding: var(--mshhlpr-control-padding-y) var(--mshhlpr-control-padding-x) !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(0, 0, 0, 0.15) !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #ffffff !important;
+    cursor: pointer !important;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+    transition: transform 0.2s, opacity 0.2s, background-color 0.2s !important;
+    text-decoration: none !important;
+    box-sizing: border-box !important;
+    white-space: nowrap !important;
+    width: fit-content;
+    line-height: 1 !important;
+}
+
+.mshhlpr-btn:hover,
+.mshhlpr-action-btn-primary:hover,
+.mshhlpr-action-btn-secondary:hover {
+    transform: translateY(-1px) !important;
+    opacity: 0.95 !important;
+}
+
+.mshhlpr-btn:disabled,
+.mshhlpr-action-btn-primary:disabled,
+.mshhlpr-action-btn-secondary:disabled {
+    opacity: 0.6 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+}
+
+/* Варианты кнопок по цветам */
+.mshhlpr-btn-primary,
+.mshhlpr-action-btn-primary {
+    background: var(--mshhlpr-primary-gradient) !important;
+}
+
+.mshhlpr-action-btn-secondary {
+    background: linear-gradient(135deg, #f5f5f5, #e0e0e0) !important;
+    color: #333333 !important;
+    border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+.mshhlpr-btn-success {
+    background: linear-gradient(135deg, #2ecc71, #27ae60) !important;
+}
+
+.mshhlpr-btn-info {
+    background: linear-gradient(135deg, #2980b9, #1f618d) !important;
+}
+
+.mshhlpr-btn-danger {
+    background: linear-gradient(135deg, #e74c3c, #c62828) !important;
+}
+
+.mshhlpr-btn-full {
+    width: 100% !important;
+}
+
+/* ==========================================================================
+   ПОЛЯ ВВОДА И ФОРМЫ (FORMS)
+   ========================================================================== */
+
+.mshhlpr-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mshhlpr-form-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #2e7d32;
+}
+
+.mshhlpr-input,
+.mshhlpr-textarea,
+.mshhlpr-select {
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    font-size: 13px;
+    outline: none;
+    font-family: inherit;
+    background: #ffffff;
+    box-sizing: border-box;
+    width: 100%;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.mshhlpr-textarea {
+    resize: vertical;
+}
+
+.mshhlpr-input:focus,
+.mshhlpr-textarea:focus,
+.mshhlpr-select:focus {
+    border-color: #2e7d32;
+    box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.15);
+}
+
+.mshhlpr-section-title {
+    font-size: 12px;
+    color: #7f8c8d;
+    text-transform: uppercase;
+    font-weight: bold;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 4px;
+}
+
+/* ==========================================================================
+   МОДАЛЬНОЕ ОКНО САМОАНАЛИЗА (SELF ANALYSIS)
+   ========================================================================== */
+
+.mshhlpr-modal-analysis {
+    width: 1350px !important;
+    height: 85vh !important;
+    max-width: 96vw !important;
+    max-height: 900px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background: #fdfdfd !important;
+}
+
+.mshhlpr-analysis-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    height: 100%;
+}
+
+.mshhlpr-analysis-grid {
+    display: flex;
+    gap: 20px;
+    flex: 1;
+    overflow: hidden;
+}
+
+.mshhlpr-analysis-sidebar {
+    width: 350px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.mshhlpr-analysis-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    border-left: 1px solid #eee;
+    padding-left: 18px;
+    padding-right: 5px;
+    overflow-y: auto;
+}
+
+.mshhlpr-analysis-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-top: auto;
+    padding-top: 10px;
+}

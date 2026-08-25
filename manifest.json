@@ -1,0 +1,69 @@
+{
+    "manifest_version": 3,
+    "name": "МЭШ Помогатор",
+    "short_name": "mesh_helper",
+    "version": "2.0",
+    "version_name": "v.2.0 (от 26.08.2026)",
+    "description": "Помощник для работы с Моей Школой Московской области (authedu.mosreg.ru) Автор Храмцов Андрей Константинович. Версия для МАОУ СОШ №5 г. Балашиха.",
+    "icons": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "48": "icons/icon48.png",
+            "128": "icons/icon128.png"
+        }
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "*://authedu.mosreg.ru/*"
+            ],
+            "css": [
+                "styles.css"
+            ],
+            "js": [
+                "scripts/extensionToggle.js",
+                "scripts/aboutMe.js",
+                "scripts/contentBlocker.js",
+                "scripts/maxButton.js",
+                "scripts/identity.js",
+                "scripts/scheduleZipper.js",
+                "scripts/journalTools.js",
+                "scripts/checkStatus.js",
+                "scripts/libs/qrious.min.js",
+                "scripts/tools.js",
+                "scripts/ktpHelper.js",
+                "scripts/schedulePDF.js",
+                "scripts/selfAnalysis.js",
+                "content.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "permissions": [
+        "storage",
+        "webRequest"
+    ],
+    "host_permissions": [
+        "*://authedu.mosreg.ru/*"
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "icons/Andrusha.png",
+                "icons/Andreyka.jpg"
+            ],
+            "matches": [
+                "*://authedu.mosreg.ru/*"
+            ]
+        }
+    ]
+}
