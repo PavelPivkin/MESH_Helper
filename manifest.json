@@ -2,8 +2,8 @@
     "manifest_version": 3,
     "name": "МЭШ Помогатор",
     "short_name": "mesh_helper",
-    "version": "2.0",
-    "version_name": "v.2.0 (от 26.08.2026)",
+    "version": "2.0.1",
+    "version_name": "2.0.1 (от 30.08.2026)",
     "description": "Помощник для работы с Моей Школой Московской области (authedu.mosreg.ru) Автор Храмцов Андрей Константинович. Версия для МАОУ СОШ №5 г. Балашиха.",
     "icons": {
         "16": "icons/icon16.png",

@@ -8,9 +8,9 @@
     --mshhlpr-primary-gradient: linear-gradient(135deg, #4caf50, #2e7d32);
     --mshhlpr-border-radius: 16px;
     --mshhlpr-overlay-blur: blur(2px);
-    --mshhlpr-control-height: 38px;
-    --mshhlpr-control-padding-x: 14px;
-    --mshhlpr-control-padding-y: 8px;
+    --mshhlpr-control-height: 32px;
+    --mshhlpr-control-padding-x: 10px;
+    --mshhlpr-control-padding-y: 0px;
     --mshhlpr-switch-width: 40px;
     --mshhlpr-switch-height: 22px;
 }
@@ -286,6 +286,28 @@
     background-color: #2e7d32 !important;
 }
 
+/* Компактный тумблер iOS (под высоту 32px) */
+.mshhlpr-compact-switch {
+    width: 30px !important;
+    height: 16px !important;
+    margin: 0 !important;
+}
+
+.mshhlpr-compact-switch .mshhlpr-ios-slider {
+    border-radius: 16px !important;
+}
+
+.mshhlpr-compact-switch .mshhlpr-ios-slider:before {
+    height: 12px !important;
+    width: 12px !important;
+    left: 2px !important;
+    bottom: 2px !important;
+}
+
+.mshhlpr-compact-switch input:checked + .mshhlpr-ios-slider:before {
+    transform: translateX(14px) !important;
+}
+
 /* --- 8. СТИЛИ POPUP ОКНА (Градиент на все окно, черный текст) --- */
 
 .mshhlpr-popup-body-html {
@@ -345,28 +367,33 @@
     font-weight: 600;
 }
 
-/* --- 9. УНИВЕРСАЛЬНАЯ КНОПКА С ТУМБЛЕРОМ --- */
+/* --- 9. УНИВЕРСАЛЬНАЯ КНОПКА С ТУМБЛЕРОМ (ЕДИНЫЙ СТАНДАРТ 32px) --- */
 .mshhlpr-universal-toggle-btn {
-    display: flex !important;
+    display: inline-flex !important;
     align-items: center !important;
     justify-content: space-between !important;
-    gap: 12px !important;
+    gap: 8px !important;
     background: var(--mshhlpr-primary-gradient) !important;
-    border: 1px solid #000000 !important; /* Максимально тонкая черная рамка (1 пиксель) */
-    border-radius: 12px !important; 
-    padding: var(--mshhlpr-control-padding-y) var(--mshhlpr-control-padding-x) !important;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+    border: 1px solid rgba(0, 0, 0, 0.15) !important;
+    border-radius: 8px !important; 
+    padding: 0 10px !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
     box-sizing: border-box !important;
-    line-height: 1.2 !important;
-    min-height: 0 !important;
+    line-height: 1 !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    max-height: 32px !important;
+    cursor: pointer !important;
+    user-select: none !important;
 }
 
 .mshhlpr-universal-toggle-text {
-    font-size: 14px !important;
+    font-size: 12px !important;
     font-weight: 600 !important;
     color: #ffffff !important;
     margin: 0 !important;
     white-space: nowrap !important;
+    line-height: 1 !important;
 }
 
 /* --- 10. ПЛАШКА УЧИТЕЛЯ В POPUP --- */
@@ -532,6 +559,8 @@
     padding: clamp(5px, 0.8vh, 12px) clamp(6px, 0.8vw, 14px) !important;
     gap: clamp(4px, 0.5vw, 10px) !important;
     min-width: 0 !important;
+    height: auto !important;
+    max-height: none !important;
 }
 
 #mshhlpr-sidebar-body .mshhlpr-universal-toggle-text {
@@ -731,13 +760,13 @@ td.mshhlpr-final-correct *, td.mshhlpr-final-missing *, td.mshhlpr-final-wrong *
     height: var(--mshhlpr-control-height) !important;
     min-height: var(--mshhlpr-control-height) !important;
     padding: var(--mshhlpr-control-padding-y) var(--mshhlpr-control-padding-x) !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
     border: 1px solid rgba(0, 0, 0, 0.15) !important;
-    font-size: 13px !important;
+    font-size: 12px !important;
     font-weight: 600 !important;
     color: #ffffff !important;
     cursor: pointer !important;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
     transition: transform 0.2s, opacity 0.2s, background-color 0.2s !important;
     text-decoration: none !important;
     box-sizing: border-box !important;

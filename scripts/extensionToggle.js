@@ -32,18 +32,20 @@
 
         console.log('[МЭШ][extensionToggle.js] Найден блок меню, внедряем тумблер.');
 
-        const toggleItem = document.createElement('div');
+        // Было 'div', делаем 'label'
+        const toggleItem = document.createElement('label');
         toggleItem.id = 'mesh-extension-toggle-item';
-        toggleItem.className = 'mshhlpr-universal-toggle-btn'; 
-        toggleItem.style.marginBottom = '8px'; 
+        toggleItem.className = 'mshhlpr-universal-toggle-btn';
+        toggleItem.style.marginBottom = '8px';
 
         toggleItem.innerHTML = `
-            <span class="mshhlpr-universal-toggle-text">МЭШ Помогатор</span>
-            <label class="mshhlpr-ios-switch">
-                <input type="checkbox" id="mesh-main-toggle-input">
-                <span class="mshhlpr-ios-slider"></span>
-            </label>
-        `;
+    <span class="mshhlpr-universal-toggle-text">МЭШ Помогатор</span>
+    <!-- Внутреннюю обертку меняем с label на div -->
+    <div class="mshhlpr-ios-switch">
+        <input type="checkbox" id="mesh-main-toggle-input">
+        <span class="mshhlpr-ios-slider"></span>
+    </div>
+`;
 
         container.insertBefore(toggleItem, teacherBtn);
 

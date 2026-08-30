@@ -59,7 +59,9 @@ const SELECTORS = {
     dayStatsInline: '.mshhlpr-day-stats-inline',
     totalMini: '.mshhlpr-total-mini',
     statStack: '.mshhlpr-stat-stack',
-    statPillClass: 'mshhlpr-stat-pill'
+    statPillClass: 'mshhlpr-stat-pill',
+    settingsBtn: 'button[data-test-component="scheduleHeaderSettingsView"]',
+    toggleContainer: 'div[data-test-component="undefined-toggleContainer"]'
 };
 
 window.initScheduleZipper = function () {
@@ -75,17 +77,15 @@ window.initScheduleZipper = function () {
 
     let STATE = { zip: true, ndo: false };
     let BELLS_TEXT = "", PARSED_BELLS = [], ACTIVE_TEACHER = null;
-    let isProcessingDom = false, mainObserver = null;
+    let isProcessingDom = false, mainObserver = null, isTogglingWeekend = false;
     const BELL_BY_NUM = new Map();
-    
-    // Кэш кабинетов карточек (cardId -> "каб. 411")
     const cabCache = {};
 
-    const timeToMins = str => { 
-        try { 
-            const [h, m] = str.replace('.', ':').split(':').map(Number); 
-            return (isNaN(h) || isNaN(m)) ? null : h * 60 + m; 
-        } catch { return null; } 
+    const timeToMins = str => {
+        try {
+            const [h, m] = str.replace('.', ':').split(':').map(Number);
+            return (isNaN(h) || isNaN(m)) ? null : h * 60 + m;
+        } catch { return null; }
     };
 
     function updateParsedBells() {
@@ -125,8 +125,8 @@ window.initScheduleZipper = function () {
     chrome.storage.local.get(['activeTeacher', 'profiles', 'globalBellSchedule'], (res) => {
         syncState(res);
         if (location.href.includes('schedule')) {
-            injectStyles(); 
-            injectToggleUI(); 
+            injectStyles();
+            injectToggleUI();
             runPipeline();
         }
         startObserver();
@@ -135,8 +135,8 @@ window.initScheduleZipper = function () {
     chrome.storage.onChanged.addListener((changes, area) => {
         if (area === 'local' && location.href.includes('schedule') && (changes.profiles || changes.globalBellSchedule)) {
             chrome.storage.local.get(['activeTeacher', 'profiles', 'globalBellSchedule'], (res) => {
-                syncState(res); 
-                updateTogglesUI(); 
+                syncState(res);
+                updateTogglesUI();
                 runPipeline();
             });
         }
@@ -146,12 +146,12 @@ window.initScheduleZipper = function () {
         if (mainObserver) mainObserver.disconnect();
 
         const loop = () => {
-            if (isProcessingDom) return;
+            if (isProcessingDom || isTogglingWeekend) return;
             isProcessingDom = true;
             window.requestAnimationFrame(() => {
                 if (location.href.includes('schedule')) {
-                    injectStyles(); 
-                    injectToggleUI(); 
+                    injectStyles();
+                    injectToggleUI();
                     runPipeline();
                 } else {
                     document.getElementById('mshhlpr-schedule-controls')?.remove();
@@ -162,10 +162,9 @@ window.initScheduleZipper = function () {
 
         mainObserver = new MutationObserver(loop);
         mainObserver.observe(document.body, { childList: true, subtree: true });
-        loop(); // Первый принудительный запуск
+        loop();
     }
 
-    // Сопоставление времени урока с номером звонка
     const getBellByNumber = num => BELL_BY_NUM.get(num) || PARSED_BELLS.find(b => b.num === num);
 
     function getLessonSlotIndex(timeText, fallbackIndex) {
@@ -190,12 +189,10 @@ window.initScheduleZipper = function () {
         return PARSED_BELLS[PARSED_BELLS.length - 1]?.num || (fallbackIndex || 1);
     }
 
-    // === БЕСШУМНОЕ ПОЛУЧЕНИЕ НОМЕРА КАБИНЕТА ===
     async function getCabinetSilently(cardInner) {
         if (!cardInner) return null;
         const cardId = cardInner.getAttribute('data-test-component') || '';
 
-        // 1. Проверяем, есть ли уже кабинет в DOM
         const existingCab = cardInner.querySelector(SELECTORS.cabinetMarker);
         if (existingCab) {
             const txt = existingCab.textContent.trim();
@@ -205,10 +202,8 @@ window.initScheduleZipper = function () {
             }
         }
 
-        // 2. Проверяем кэш
         if (cardId && cabCache[cardId]) return cabCache[cardId];
 
-        // 3. Бесшумная эмуляция наведения через скрытый стиль
         const silentStyle = document.createElement('style');
         silentStyle.id = 'msh-silent-popper-hide';
         silentStyle.textContent = 'div[role="tooltip"].MuiPopper-root, div[role="tooltip"].zGtSdhndEVAwp_Wmlido { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }';
@@ -237,20 +232,15 @@ window.initScheduleZipper = function () {
         return null;
     }
 
-    // Вставка кабинета в строку заголовка карточки
     async function ensureCabinetRendered(cardElement) {
         const cardInner = cardElement.querySelector(SELECTORS.cardInner);
         if (!cardInner) return;
 
         const timeRow = cardInner.querySelector(SELECTORS.timeRow);
-        if (!timeRow) return;
-
-        // Если кабинет уже есть — ничего не делаем
-        if (timeRow.querySelector(SELECTORS.cabinetMarker)) return;
+        if (!timeRow || timeRow.querySelector(SELECTORS.cabinetMarker)) return;
 
         const cabText = await getCabinetSilently(cardInner);
-        if (!cabText || !timeRow.isConnected) return;
-        if (timeRow.querySelector(SELECTORS.cabinetMarker)) return;
+        if (!cabText || !timeRow.isConnected || timeRow.querySelector(SELECTORS.cabinetMarker)) return;
 
         const cabDiv = document.createElement('div');
         cabDiv.className = 'uejslo_PZAjKN3xN msh-injected-cab';
@@ -262,10 +252,66 @@ window.initScheduleZipper = function () {
         timeRow.appendChild(cabDiv);
     }
 
-    // === ГЛАВНЫЙ АЛГОРИТМ ПОЗИЦИОНИРОВАНИЯ И СЖАТИЯ ===
+    // Автоматическое скрытие пустых суббот и воскресений через нативные настройки
+    async function checkAndSyncEmptyWeekends(days) {
+        if (isTogglingWeekend || !STATE.zip) return;
+        const hdrs = document.querySelectorAll(SELECTORS.summaryHeader + ' ' + SELECTORS.header);
+        const emptySat = days.some((d, i) => (hdrs[i]?.textContent || '').toLowerCase().includes('сб') && !d.querySelector(CONFIG.SEL.lesson));
+        const emptySun = days.some((d, i) => (hdrs[i]?.textContent || '').toLowerCase().includes('вс') && !d.querySelector(CONFIG.SEL.lesson));
+        if (!emptySat && !emptySun) return;
+
+        const btn = document.querySelector(SELECTORS.settingsBtn);
+        if (!btn) return;
+        isTogglingWeekend = true;
+        btn.click();
+        await new Promise(r => setTimeout(r, 50));
+        document.querySelectorAll(SELECTORS.toggleContainer).forEach(c => {
+            const txt = c.textContent.toLowerCase(), inp = c.querySelector('input');
+            if (((emptySat && txt.includes('суббот')) || (emptySun && txt.includes('воскрес'))) && inp?.checked) (inp || c).click();
+        });
+        await new Promise(r => setTimeout(r, 50));
+        btn.click();
+        setTimeout(() => { isTogglingWeekend = false; }, 200);
+    }
+
+    // Быстрый переход в журнал класса при клике на название класса
+    async function quickOpenJournal(lessonCard) {
+        const target = lessonCard.querySelector(SELECTORS.cabinetMouseTarget) || lessonCard;
+        ['mouseover', 'mouseenter', 'click'].forEach(ev => target.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
+
+        for (let i = 0; i < 15; i++) {
+            const buttons = Array.from(document.querySelectorAll('button'));
+            const journalBtn = buttons.find(b => b.textContent.includes('К журналу') && b.offsetParent !== null);
+            if (journalBtn) {
+                journalBtn.click();
+                return;
+            }
+            await new Promise(r => setTimeout(r, 20));
+        }
+    }
+
+    // Делегированный слушатель прямого клика по классу
+    if (!window.__meshScheduleJournalBind) {
+        document.addEventListener('click', async (e) => {
+            if (!STATE.zip) return;
+            const groupEl = e.target.closest(SELECTORS.group);
+            if (!groupEl) return;
+
+            const lessonCard = groupEl.closest(SELECTORS.lesson);
+            if (!lessonCard) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            await quickOpenJournal(lessonCard);
+        }, true);
+        window.__meshScheduleJournalBind = true;
+    }
+
     function runPipeline() {
         const days = Array.from(document.querySelectorAll(SELECTORS.day));
         if (!days.length) return;
+
+        if (STATE.zip) checkAndSyncEmptyWeekends(days);
 
         document.body.classList.toggle('mshhlpr-zipping-active', STATE.zip);
         document.querySelectorAll(SELECTORS.elasticWindow).forEach(el => el.remove());
@@ -273,7 +319,7 @@ window.initScheduleZipper = function () {
         const slotPitch = CONFIG.CARD_HEIGHT + CONFIG.CARD_GAP;
         const dayCardGroups = new Map();
 
-        // 1. Сбор всех карточек недели
+        let maxLessonBottom = 0;
         const allWeekCards = [];
         days.forEach((day, dayIdx) => {
             const lessonEls = Array.from(day.querySelectorAll(CONFIG.SEL.lesson));
@@ -287,6 +333,10 @@ window.initScheduleZipper = function () {
                     wrapper.dataset.meshOrigHeight = wrapper.style.height || `${CONFIG.CARD_HEIGHT}px`;
                 }
 
+                const topVal = parseFloat(wrapper.dataset.meshOrigTop) || 0;
+                const hVal = parseFloat(wrapper.dataset.meshOrigHeight) || 104;
+                maxLessonBottom = Math.max(maxLessonBottom, topVal + hVal);
+
                 const grpName = l.querySelector(CONFIG.SEL.group)?.textContent.toLowerCase() || '';
                 const isNdo = CONFIG.NDO_KEYWORDS.some(kw => grpName.includes(kw));
                 const timeText = l.querySelector(CONFIG.SEL.time)?.textContent.trim() || '';
@@ -298,7 +348,7 @@ window.initScheduleZipper = function () {
                     wrapper,
                     isNdo,
                     slotNum,
-                    topVal: parseFloat(wrapper.dataset.meshOrigTop) || 0
+                    topVal
                 };
 
                 allWeekCards.push(card);
@@ -307,7 +357,7 @@ window.initScheduleZipper = function () {
             });
         });
 
-        // 2. Определение диапазона смены недели
+        const uncompressedHeight = Math.max(1200, maxLessonBottom + 60);
         const visibleWeekCards = allWeekCards.filter(c => !(c.isNdo && STATE.ndo));
         let minSlot = 1, maxSlot = 7;
         if (visibleWeekCards.length > 0) {
@@ -317,15 +367,10 @@ window.initScheduleZipper = function () {
         }
         const totalActiveSlots = Math.max(1, maxSlot - minSlot + 1);
 
-        // 3. Обработка карточек по дням
         days.forEach((day, dayIdx) => {
             const dayCards = dayCardGroups.get(dayIdx) || [];
 
-            if (STATE.zip) {
-                day.style.height = `${totalActiveSlots * slotPitch}px`;
-            } else {
-                day.style.height = '';
-            }
+            day.style.height = STATE.zip ? `${totalActiveSlots * slotPitch}px` : `${uncompressedHeight}px`;
 
             const slotMap = new Map();
             dayCards.forEach(c => {
@@ -350,7 +395,7 @@ window.initScheduleZipper = function () {
                     if (count === 1) {
                         c.wrapper.style.width = '100%';
                         c.wrapper.style.left = '0%';
-                        ensureCabinetRendered(c.el);
+                        if (STATE.zip) ensureCabinetRendered(c.el);
                     } else if (count > 1) {
                         const widthPct = 100 / count;
                         c.wrapper.style.width = `${widthPct}%`;
@@ -365,6 +410,8 @@ window.initScheduleZipper = function () {
                     } else {
                         c.wrapper.style.top = c.wrapper.dataset.meshOrigTop;
                         c.wrapper.style.height = c.wrapper.dataset.meshOrigHeight;
+                        c.wrapper.style.width = c.wrapper.dataset.meshOrigWidth || '100%';
+                        if (c.wrapper.dataset.meshOrigLeft) c.wrapper.style.left = c.wrapper.dataset.meshOrigLeft;
                     }
                 });
             });
@@ -386,7 +433,7 @@ window.initScheduleZipper = function () {
                             const bellInfo = getBellByNumber(s);
                             const label = bellInfo ? `${s} УРОК (${bellInfo.orig})` : `ОКНО (${s} УРОК)`;
                             windowEl.setAttribute('data-window-label', label);
-                            
+
                             day.appendChild(windowEl);
                         }
                     }
@@ -394,12 +441,11 @@ window.initScheduleZipper = function () {
             }
         });
 
-        updateRuler(STATE.zip ? minSlot : null, STATE.zip ? maxSlot : null, slotPitch);
+        updateRuler(STATE.zip ? minSlot : null, STATE.zip ? maxSlot : null, slotPitch, uncompressedHeight);
         generateScheduleStats(days);
     }
 
-    // Синхронизация линейки звонков слева напрямую внутри .kDceJpxARRwfSjiN
-    function updateRuler(minSlot, maxSlot, slotPitch) {
+    function updateRuler(minSlot, maxSlot, slotPitch, uncompressedHeight) {
         const ruler = document.querySelector(SELECTORS.ruler);
         if (!ruler) return;
 
@@ -408,6 +454,7 @@ window.initScheduleZipper = function () {
         if (!STATE.zip || minSlot === null) {
             ruler.classList.remove('mshhlpr-custom-ruler-active');
             container?.remove();
+            ruler.style.height = `${uncompressedHeight || 1200}px`;
             return;
         }
 
@@ -427,8 +474,8 @@ window.initScheduleZipper = function () {
             let timeHtml = `<span>${s} ур.</span>`;
             if (bell && bell.orig) {
                 const parts = bell.orig.split('-');
-                timeHtml = parts.length === 2 
-                    ? `<span>${parts[0]}</span><span>-</span><span>${parts[1]}</span>` 
+                timeHtml = parts.length === 2
+                    ? `<span>${parts[0]}</span><span>-</span><span>${parts[1]}</span>`
                     : `<span>${bell.orig}</span>`;
             }
             rulerHtml += `
@@ -466,7 +513,6 @@ window.initScheduleZipper = function () {
                 totalLessons++;
                 const grp = l.querySelector(SELECTORS.group)?.textContent.trim() || 'Урок';
 
-                // Проверяем класс ошибки как на самом элементе, так и внутри него
                 const isMissingHw = hwBadge?.classList.contains('LzfOfTqaSQRzzPQJ86I6') || !!hwBadge?.querySelector('.LzfOfTqaSQRzzPQJ86I6');
                 const isMissingMark = mrkBadge?.classList.contains('LzfOfTqaSQRzzPQJ86I6') || !!mrkBadge?.querySelector('.LzfOfTqaSQRzzPQJ86I6');
 
@@ -477,7 +523,6 @@ window.initScheduleZipper = function () {
                 if (!topicEl || !topicEl.textContent.trim().length) missingTopic.push(grp);
             });
 
-            // Формируем бейдж с сохранением данных для глобального тултипа
             const statPill = (lbl, arr) => {
                 if (!arr.length) return '';
                 const tipText = `<strong>Не заполнено (${lbl}):</strong><br>${arr.join('<br>')}`;
@@ -506,11 +551,9 @@ window.initScheduleZipper = function () {
             }
         });
 
-        // Инициализация глобального тултипа поверх всех слоев
         initGlobalTooltip();
     }
 
-    // Глобальный слушатель плавающего тултипа
     function initGlobalTooltip() {
         if (window.__mshStatTipInited) return;
         window.__mshStatTipInited = true;
@@ -524,8 +567,6 @@ window.initScheduleZipper = function () {
 
         document.addEventListener('mouseover', e => {
             const pill = e.target.closest(SELECTORS.statPill);
-            
-            // Если курсор над бейджем — показываем и позиционируем
             if (pill && pill.dataset.mshTip) {
                 tip.innerHTML = decodeURIComponent(pill.dataset.mshTip);
                 tip.style.display = 'block';
@@ -545,13 +586,11 @@ window.initScheduleZipper = function () {
                 tip.style.top = `${top}px`;
                 tip.style.opacity = '1';
             } else {
-                // При уходе курсора на любой другой элемент страницы — мгновенно скрываем
                 tip.style.opacity = '0';
                 tip.style.display = 'none';
             }
         });
 
-        // Дополнительно скрываем подсказку при скролле страницы
         window.addEventListener('scroll', () => {
             tip.style.opacity = '0';
             tip.style.display = 'none';
@@ -579,13 +618,14 @@ window.initScheduleZipper = function () {
         let controls = document.querySelector(SELECTORS.scheduleControls);
         if (!controls) {
             const tgl = (id, txt, chk) => `
-                <div class="mshhlpr-universal-toggle-btn mshhlpr-compact-toggle">
-                    <span class="mshhlpr-universal-toggle-text">${txt}</span>
-                    <label class="mshhlpr-ios-switch mshhlpr-compact-switch">
-                        <input type="checkbox" id="${id}" ${chk ? 'checked' : ''}>
-                        <span class="mshhlpr-ios-slider"></span>
-                    </label>
-                </div>
+                <label class="mshhlpr-universal-toggle-btn mshhlpr-compact-toggle">
+                        <span class="mshhlpr-universal-toggle-text">${txt}</span>
+                        <!-- Внутренний стал div -->
+                        <div class="mshhlpr-ios-switch mshhlpr-compact-switch">
+                            <input type="checkbox" id="${id}" ${chk ? 'checked' : ''}>
+                            <span class="mshhlpr-ios-slider"></span>
+                        </div>
+                </label>
             `;
 
             controls = document.createElement('div');
@@ -667,10 +707,9 @@ window.initScheduleZipper = function () {
 
     function injectStyles() {
         if (document.querySelector(SELECTORS.scheduleCss)) return;
-        const css = document.createElement('style'); 
+        const css = document.createElement('style');
         css.id = 'mshhlpr-sch-css';
         css.textContent = `
-            /* Панель шапки - строго по целевому классу */
             aside.rUlQ9EWlNWIMbbZh.Et14spNe2tEZiyY3 {
                 height: auto !important;
                 min-height: 0 !important;
@@ -679,17 +718,12 @@ window.initScheduleZipper = function () {
                 align-items: center !important;
                 gap: 4px !important;
             }
-            
-            /* Ровное распределение строки времени и кабинета внутри карточки */
             .wwzPs6NXE0deYHCZ {
                 display: flex !important;
                 justify-content: space-between !important;
                 align-items: center !important;
                 width: 100% !important;
             }
-
-            /* Стили сжатой сетки (строго внутри колонок расписания) */
-            /* Ограничение темы строго в 1 строку ТОЛЬКО в режиме сжатия */
             body.mshhlpr-zipping-active .Yqc7KGCueoAVFI1x,
             body.mshhlpr-zipping-active .cdISCvPwy4Q2oujR > span:nth-child(2) {
                 display: -webkit-box !important;
@@ -698,8 +732,16 @@ window.initScheduleZipper = function () {
                 overflow: hidden !important;
                 line-height: 1.2 !important;
             }
-
-            /* Внутренняя высота карточки под 1 строку темы */
+            body.mshhlpr-zipping-active .cdISCvPwy4Q2oujR > span:first-child,
+            body.mshhlpr-zipping-active .As5rq3Q894A706VT {
+                cursor: pointer !important;
+                transition: color 0.15s ease, text-decoration 0.15s ease !important;
+            }
+            body.mshhlpr-zipping-active .cdISCvPwy4Q2oujR > span:first-child:hover,
+            body.mshhlpr-zipping-active .As5rq3Q894A706VT:hover {
+                color: #2e7d32 !important;
+                text-decoration: underline !important;
+            }
             body.mshhlpr-zipping-active .m0Kra9tNIDzJFtd8 {
                 height: 104px !important;
             }
@@ -712,8 +754,6 @@ window.initScheduleZipper = function () {
             body.mshhlpr-zipping-active .nkAfYFPTIKgFNq2L > div[style*="position: absolute"] {
                 transition: top 0.2s ease, width 0.2s ease, left 0.2s ease !important;
             }
-
-            /* Нативная левая линейка времени в режиме сжатия */
             .kDceJpxARRwfSjiN.mshhlpr-custom-ruler-active {
                 position: relative !important;
                 overflow: hidden !important;
@@ -758,8 +798,6 @@ window.initScheduleZipper = function () {
                 line-height: 1 !important;
                 text-align: center !important;
             }
-
-            /* Карточка Окна */
             .mshhlpr-elastic-window {
                 position: absolute !important;
                 left: 2px !important;
@@ -782,8 +820,6 @@ window.initScheduleZipper = function () {
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
             }
-
-            /* Шапка дня */
             .BGhWmbpXf3A9L1IQ {
                 overflow: visible !important;
                 position: relative !important;
@@ -798,8 +834,6 @@ window.initScheduleZipper = function () {
                 min-width: 0 !important;
                 flex-wrap: nowrap !important;
             }
-
-            /* Вертикальная статистика: левый столбец с общим количеством и правый стек статусов */
             .mshhlpr-day-stats-inline {
                 display: grid !important;
                 grid-template-columns: auto minmax(0, 1fr) !important;
@@ -859,8 +893,6 @@ window.initScheduleZipper = function () {
                 min-height: 0 !important;
                 transform: scaleY(0.9) !important;
             }
-
-            /* Глобальный всплывающий тултип поверх всего экрана */
             #mshhlpr-global-stat-tooltip {
                 display: none;
                 opacity: 0;
