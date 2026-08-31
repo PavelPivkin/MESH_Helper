@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "МЭШ Помогатор",
     "short_name": "mesh_helper",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "version_name": "2.0.2 (от 01.09.2026)",
     "description": "Помощник для работы с Моей Школой Московской области (authedu.mosreg.ru) Автор Храмцов Андрей Константинович.",
     "icons": {
