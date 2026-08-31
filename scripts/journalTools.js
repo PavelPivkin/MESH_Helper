@@ -82,10 +82,31 @@ window.initJournalTools = function () {
 
     const getGroupId = () => location.href.match(/\/journal\/(?:[a-zA-Z-]+\/)?(\d+)/)?.[1];
     
+    // Автоопределение aid из открытой страницы
+    function getPageAcademicYearId() {
+        try {
+            const resources = performance.getEntriesByType('resource');
+            for (let i = resources.length - 1; i >= 0; i--) {
+                const match = resources[i].name.match(/[?&]academic_year_id=(\d+)/);
+                if (match) return match[1];
+            }
+        } catch (e) {}
+        return new URLSearchParams(location.search).get('academic_year_id') || "";
+    }
+
     async function getHeaders() {
         const { currentBearerToken, currentProfileId } = await chrome.storage.session.get(['currentBearerToken', 'currentProfileId']);
         if (!currentBearerToken) throw new Error('Сессионные токены не найдены');
-        return { "authorization": `Bearer ${currentBearerToken}`, "profile-id": currentProfileId || "", "x-mes-hostid": "9", "x-mes-roleid": "9", "aid": "13", "content-type": "application/json" };
+        const aid = getPageAcademicYearId();
+        const h = { 
+            "authorization": `Bearer ${currentBearerToken}`, 
+            "profile-id": currentProfileId || "", 
+            "x-mes-hostid": "9", 
+            "x-mes-roleid": "9", 
+            "content-type": "application/json" 
+        };
+        if (aid) h["aid"] = aid;
+        return h;
     }
 
     // --- ФОНОВАЯ ЗАГРУЗКА КЛАССА ---
@@ -96,38 +117,77 @@ window.initJournalTools = function () {
         try {
             const h = await getHeaders();
             const d = await (await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/groups/${groupId}`, { headers: { ...h, "x-mes-subsystem": "journalw" } })).json();
-            if (!d.student_ids?.length) { classCache.isLoaded = true; classCache.isLoading = false; return; }
             
-            const profs = (await Promise.all(d.student_ids.map(async id => {
+            let profs = [];
+
+            // 1. Обычный активный класс
+            if (d.student_ids && d.student_ids.length > 0) {
+                profs = (await Promise.all(d.student_ids.map(async id => {
+                    try {
+                        const pData = await (await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles/${id}?with_user_info=true&with_archived_groups=true`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } })).json();
+                        const p = pData.user || pData.person || pData;
+                        return p?.last_name ? { 
+                            id, 
+                            name: `${p.last_name} ${p.first_name} ${p.middle_name || ''}`.trim(), 
+                            shortName: `${p.last_name} ${p.first_name}`.trim(), 
+                            classLevelId: pData.class_unit?.class_level_id || d.class_level_id,
+                            birthDate: p.birth_date || null
+                        } : null;
+                    } catch { return null; }
+                }))).filter(Boolean);
+            } 
+            // 2. Архивный класс
+            else {
                 try {
-                    const pData = await (await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles/${id}?with_user_info=true`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } })).json();
-                    const p = pData.user || pData.person || pData;
-                    return p?.last_name ? { 
-                        id, 
-                        name: `${p.last_name} ${p.first_name} ${p.middle_name || ''}`.trim(), 
-                        shortName: `${p.last_name} ${p.first_name}`.trim(), 
-                        classLevelId: pData.class_unit?.class_level_id,
-                        birthDate: p.birth_date || null // Сохраняем дату рождения
-                    } : null;
-                } catch { return null; }
-            }))).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
-            
+                    const archRes = await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles?group_ids=${groupId}&with_archived_groups=true&with_user_info=true&per_page=150`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } });
+                    if (archRes.ok) {
+                        const archList = await archRes.json();
+                        const rawList = Array.isArray(archList) ? archList : (archList.student_profiles || []);
+                        profs = rawList.map(pData => {
+                            const p = pData.user || pData.person || pData;
+                            return p?.last_name ? {
+                                id: pData.id,
+                                name: `${p.last_name} ${p.first_name} ${p.middle_name || ''}`.trim(),
+                                shortName: `${p.last_name} ${p.first_name}`.trim(),
+                                classLevelId: pData.class_unit?.class_level_id || d.class_level_id,
+                                birthDate: p.birth_date || null
+                            } : null;
+                        }).filter(Boolean);
+                    }
+                } catch (errArch) {}
+            }
+
+            profs.sort((a, b) => a.name.localeCompare(b.name));
             classCache.profiles = profs;
-            const lvl = profs.find(p => p.classLevelId)?.classLevelId;
-            if (lvl) {
-                const dt = new Date(), y = dt.getMonth() >= 8 ? dt.getFullYear() : dt.getFullYear() - 1, today = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
-                const att = await (await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/attendances?group_ids=${groupId}&class_level_id=${lvl}&academic_year_id=13&start_at=01.09.${y}&stop_at=31.08.${y+1}&page=1&per_page=1000`, { headers: { ...h, "x-mes-subsystem": "journalw" } })).json();
-                classCache.absentIds = att.filter(i => i.date === today).map(i => i.student_profile_id);
+            classCache.absentIds = [];
+
+            // Посещаемость (для текущего дня)
+            const lvl = profs.find(p => p.classLevelId)?.classLevelId || d.class_level_id;
+            if (lvl && h.aid) {
+                try {
+                    const dt = new Date(), y = dt.getMonth() >= 8 ? dt.getFullYear() : dt.getFullYear() - 1, today = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
+                    const attRes = await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/attendances?group_ids=${groupId}&class_level_id=${lvl}&academic_year_id=${h.aid}&start_at=01.09.${y}&stop_at=31.08.${y+1}&page=1&per_page=1000`, { headers: { ...h, "x-mes-subsystem": "journalw" } });
+                    if (attRes.ok) {
+                        const att = await attRes.json();
+                        if (Array.isArray(att)) {
+                            classCache.absentIds = att.filter(i => i.date === today).map(i => i.student_profile_id);
+                        }
+                    }
+                } catch (e) {}
             }
             classCache.isLoaded = true;
-        } catch (e) { logCL('Ошибка списков:', e); } finally { classCache.isLoading = false; }
+        } catch (e) { 
+            logCL('Ошибка списков:', e); 
+            classCache.isLoaded = true;
+        } finally { 
+            classCache.isLoading = false; 
+        }
     }
 
     // --- 1. ПАНЕЛЬ UI ---
     function modalWindows() {
         const autoFitText = el => {
             if (!el?.parentElement) return;
-            // Стартовый размер шрифта увеличиваем до 18px для экранов 1080p+
             let maxW = el.parentElement.clientWidth - 24, size = 18; el.style.fontSize = size + 'px';
             while (el.scrollWidth > maxW && size > 10) el.style.fontSize = (size -= 0.5) + 'px';
         };
@@ -141,7 +201,6 @@ window.initJournalTools = function () {
             el.classList.toggle('mshhlpr-sidebar-collapsed', collapse); 
             el.classList.toggle('mshhlpr-sidebar-expanded', !collapse);
             
-            // Динамически сдвигаем контент таблицы журнала, предотвращая наложение
             board.classList.toggle('mshhlpr-has-sidebar-expanded', !collapse);
             board.classList.toggle('mshhlpr-has-sidebar-collapsed', collapse);
 
@@ -155,7 +214,6 @@ window.initJournalTools = function () {
             sidebar = document.createElement('div'); sidebar.id = 'mshhlpr-journal-sidebar';
             sidebar.className = `mshhlpr-sidebar-container ${isC ? 'mshhlpr-sidebar-collapsed' : 'mshhlpr-sidebar-expanded'}`;
             
-            // Применяем стартовый класс док-станции на родителя
             board.classList.toggle('mshhlpr-has-sidebar-expanded', !isC);
             board.classList.toggle('mshhlpr-has-sidebar-collapsed', isC);
 
@@ -192,13 +250,25 @@ window.initJournalTools = function () {
 
         try {
             const h = await getHeaders();
-            const { student_ids } = await (await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/groups/${groupId}`, { headers: { ...h, "x-mes-subsystem": "journalw" } })).json();
-            if (!student_ids?.[0]) return (el.innerHTML = 'Класс пуст');
-            const prof = await (await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles/${student_ids[0]}?with_user_info=true`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } })).json();
-            const m = prof.mentors?.[0]?.name || "Не назначен";
-            el.innerHTML = `<div style="font-size:10px;color:#2e7d32;font-weight:700;margin-bottom:4px">Класс ${prof.class_unit?.name || "?"}</div><span id="mshhlpr-mentor-name" style="font-size:13px;font-weight:700;color:#333" title="${m}">${m}</span>`;
-            if (document.getElementById('mshhlpr-journal-sidebar')?.classList.contains('mshhlpr-sidebar-expanded')) requestAnimationFrame(() => autoFit(document.getElementById('mshhlpr-mentor-name')));
-        } catch { el.innerHTML = '<span style="color:#777">Ошибка загрузки</span>'; }
+            const groupData = await (await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/groups/${groupId}`, { headers: { ...h, "x-mes-subsystem": "journalw" } })).json();
+            
+            let firstStudentId = groupData.student_ids?.[0];
+            let mentorName = "Не назначен";
+            let className = groupData.class_unit_name || "?";
+
+            if (firstStudentId) {
+                const prof = await (await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles/${firstStudentId}?with_user_info=true`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } })).json();
+                mentorName = prof.mentors?.[0]?.name || "Не назначен";
+                className = prof.class_unit?.name || className;
+            }
+
+            el.innerHTML = `<div style="font-size:10px;color:#2e7d32;font-weight:700;margin-bottom:4px">Класс ${className}</div><span id="mshhlpr-mentor-name" style="font-size:13px;font-weight:700;color:#333" title="${mentorName}">${mentorName}</span>`;
+            if (document.getElementById('mshhlpr-journal-sidebar')?.classList.contains('mshhlpr-sidebar-expanded')) {
+                requestAnimationFrame(() => autoFit(document.getElementById('mshhlpr-mentor-name')));
+            }
+        } catch { 
+            el.innerHTML = '<span style="color:#777">Ошибка загрузки</span>'; 
+        }
     }
 
     // --- 3. СПИСКИ И РУЛЕТКА ---
@@ -569,7 +639,6 @@ window.initJournalTools = function () {
                 if (kid && !nameEl.textContent.includes('🎂')) {
                     nameEl.textContent = `${currentText} 🎂`;
                     nameEl.title = `🎉 Сегодня день рождения! (${kid.birthDate})`;
-                    // Используем минимум инлайна: только жирность и цвет МЭШ, чтобы не ломать общие стили
                     nameEl.style.cssText = 'font-weight: 700; color: #d35400;'; 
                 }
             }
@@ -621,12 +690,40 @@ window.initJournalTools = function () {
         `);
 
         try {
-            if (!classCache.isLoaded) await ensureClassLoaded(groupId);
-            const cachedStudent = classCache.profiles.find(p => p.name === studentName || p.shortName === studentName);
-            if (!cachedStudent) throw new Error('Не удалось найти ученика в списке класса.');
-
             const h = await getHeaders();
-            const raw = await (await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles/${cachedStudent.id}?with_user_info=true&with_attendances_count=true`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } })).json();
+            let studentId = null;
+
+            if (!classCache.isLoaded) await ensureClassLoaded(groupId);
+            
+            // 1. Ищем ученика в основном кэше
+            let cachedStudent = classCache.profiles.find(p => 
+                p.name === studentName || 
+                p.shortName === studentName || 
+                studentName.startsWith(p.shortName) || 
+                p.name.startsWith(studentName)
+            );
+
+            if (cachedStudent) {
+                studentId = cachedStudent.id;
+            } else {
+                // 2. ПРЯМОЙ РЕЗЕРВНЫЙ ПОИСК (для архивных классов)
+                const archRes = await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles?group_ids=${groupId}&with_archived_groups=true&with_user_info=true&per_page=150`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } });
+                if (archRes.ok) {
+                    const rawList = await archRes.json();
+                    const list = Array.isArray(rawList) ? rawList : (rawList.student_profiles || []);
+                    const found = list.find(s => {
+                        const p = s.user || s.person || s;
+                        const fn = `${p.last_name} ${p.first_name} ${p.middle_name || ''}`.trim();
+                        const sn = `${p.last_name} ${p.first_name}`.trim();
+                        return fn === studentName || sn === studentName || studentName.startsWith(sn) || fn.startsWith(studentName);
+                    });
+                    if (found) studentId = found.id;
+                }
+            }
+
+            if (!studentId) throw new Error('Не удалось найти ученика в списке класса.');
+
+            const raw = await (await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles/${studentId}?with_user_info=true&with_attendances_count=true&with_archived_groups=true`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } })).json();
             
             const source = raw.user || raw.person || raw;
             const fio = source.full_name || raw.user_name || `${source.last_name} ${source.first_name} ${source.middle_name || ''}`.trim();

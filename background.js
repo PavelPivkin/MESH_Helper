@@ -58,6 +58,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
     (details) => {
         let authToken = null;
         let profileId = null;
+        let aid = null; // ID учебного года
 
         if (details.requestHeaders) {
             for (const header of details.requestHeaders) {
@@ -68,6 +69,9 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
                 if (name === 'profile-id') {
                     profileId = header.value; 
                 }
+                if (name === 'aid') {
+                    aid = header.value;
+                }
             }
         }
 
@@ -75,7 +79,8 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
         if (authToken) {
             chrome.storage.session.set({
                 currentBearerToken: authToken.replace('Bearer ', ''),
-                currentProfileId: profileId || ""
+                currentProfileId: profileId || "",
+                ...(aid && { currentAid: aid })
             });
         }
     },
