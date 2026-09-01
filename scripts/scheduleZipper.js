@@ -77,7 +77,8 @@ window.initScheduleZipper = function () {
 
     let STATE = { zip: true, ndo: false };
     let BELLS_TEXT = "", PARSED_BELLS = [], ACTIVE_TEACHER = null;
-    let isProcessingDom = false, mainObserver = null, isTogglingWeekend = false;
+    let mainObserver = null, isTogglingWeekend = false;
+    let debounceTimer = null, isProcessingDom = false;
     const BELL_BY_NUM = new Map();
     const cabCache = {};
 
@@ -145,24 +146,46 @@ window.initScheduleZipper = function () {
     function startObserver() {
         if (mainObserver) mainObserver.disconnect();
 
-        const loop = () => {
-            if (isProcessingDom || isTogglingWeekend) return;
-            isProcessingDom = true;
-            window.requestAnimationFrame(() => {
-                if (location.href.includes('schedule')) {
-                    injectStyles();
-                    injectToggleUI();
-                    runPipeline();
-                } else {
-                    document.getElementById('mshhlpr-schedule-controls')?.remove();
-                }
-                isProcessingDom = false;
+        // Функция, которая делает реальную работу
+        const executeModifications = () => {
+            if (isTogglingWeekend) return;
+            
+            // 1. Блокируем Обсервер, чтобы он не реагировал на наши же изменения
+            isProcessingDom = true; 
+
+            if (location.href.includes('schedule')) {
+                injectStyles();
+                injectToggleUI();
+                runPipeline();
+            } else {
+                document.getElementById('mshhlpr-schedule-controls')?.remove();
+            }
+
+            // 2. Ждем 2 кадра (чтобы браузер успел применить наши изменения в DOM) и снимаем блокировку
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    isProcessingDom = false;
+                });
             });
         };
 
-        mainObserver = new MutationObserver(loop);
+        // Обработчик мутаций (Debounce)
+        const observerHandler = () => {
+            // Игнорируем мутации, если мы сами сейчас меняем DOM
+            if (isProcessingDom || isTogglingWeekend) return;
+
+            // Если МЭШ продолжает что-то дорисовывать — сбрасываем таймер
+            if (debounceTimer) clearTimeout(debounceTimer);
+            
+            // Ждем 250 мс "тишины" в DOM перед запуском перестройки и сбором статистики
+            debounceTimer = setTimeout(executeModifications, 250);
+        };
+
+        mainObserver = new MutationObserver(observerHandler);
         mainObserver.observe(document.body, { childList: true, subtree: true });
-        loop();
+        
+        // Первичный запуск без задержки
+        executeModifications();
     }
 
     const getBellByNumber = num => BELL_BY_NUM.get(num) || PARSED_BELLS.find(b => b.num === num);
@@ -519,8 +542,26 @@ window.initScheduleZipper = function () {
                 if (isMissingHw) missingHw.push(grp);
                 if (isMissingMark) missingMarks.push(grp);
 
-                const topicEl = l.querySelector(SELECTORS.topic);
-                if (!topicEl || !topicEl.textContent.trim().length) missingTopic.push(grp);
+                // --- УМНАЯ ПРОВЕРКА КТП ---
+                const cdDiv = l.querySelector('.cdISCvPwy4Q2oujR');
+                const spans = cdDiv ? Array.from(cdDiv.querySelectorAll('span')) : [];
+                
+                // В МЭШ первый span — это группа/учитель. Второй span — это тема (если она есть).
+                // Если КТП нет, верстка сдвигается, и вторым спаном становится корпус ("Корпус №1").
+                const secondSpanText = spans[1] ? spans[1].textContent.trim().toLowerCase() : '';
+                
+                // Урок считается без КТП, если:
+                // 1. Второго спана нет вообще
+                // 2. Текст второго спана пустой
+                // 3. Во втором спане записан корпус, кабинет или другие технические данные (верстка съехала)
+                const isTopicMissing = !spans[1] || 
+                                       secondSpanText.length === 0 || 
+                                       secondSpanText.includes('корпус') || 
+                                       secondSpanText.includes('каб');
+
+                if (isTopicMissing) {
+                    missingTopic.push(grp);
+                }
             });
 
             const statPill = (lbl, arr) => {

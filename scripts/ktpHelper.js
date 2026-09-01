@@ -81,68 +81,110 @@ window.initKtpHelper = function () {
 
     // Основная процедура обработки КТП
     async function startKtpProcess() {
-        console.log(LOG_TAG, 'Запуск автоматического построения КТП...');
+        console.log(LOG_TAG, 'Запуск автозаполнения (Режим пагинации, ускоренный)...');
         initNotifications();
-
         let successCount = 0;
         const failGroups = [];
 
-        if (!await openKtpAndShowAll()) {
-            showNotification('Список КТП уже раскрыт или пуст', true);
-        }
+        // Вспомогательная функция для случайной паузы
+        const randomSleep = (min, max) => sleep(Math.floor(Math.random() * (max - min + 1)) + min);
 
+        // 1. Открываем внутренние вкладки
         const firstInner = document.querySelector(SELECTORS.firstInner);
-        if (firstInner) {
-            await sleep(DELAY);
-            mouseClick(firstInner);
-        }
+        if (firstInner) { await sleep(DELAY); mouseClick(firstInner); }
 
         const secondInner = document.querySelector(SELECTORS.secondInner);
-        if (secondInner) {
-            await sleep(DELAY);
-            mouseClick(secondInner);
-        }
+        if (secondInner) { await sleep(DELAY); mouseClick(secondInner); }
 
-        const ktpContainers = document.querySelectorAll(SELECTORS.ktpButtons);
-        const ktpContainer = ktpContainers[2] || document.querySelector('.TKVLD5v7YAbPy7SGbTMY');
+        await sleep(1000);
+        await openKtpAccordion(); 
+        await sleep(1500);
 
-        if (!ktpContainer) {
-            showNotification('Ошибка: Список учебных групп не найден', false);
-            return;
-        }
+        const getFreshGroups = () => {
+            const ktpContainers = document.querySelectorAll(SELECTORS.ktpButtons);
+            const container = ktpContainers[2] || document.querySelector('.TKVLD5v7YAbPy7SGbTMY');
+            return container ? container.querySelectorAll(SELECTORS.groupContainer) : [];
+        };
 
-        const groups = ktpContainer.querySelectorAll(SELECTORS.groupContainer);
-        showNotification(`Найдено учебных групп: ${groups.length}`, true);
+        let page = 1;
+        let hasNextPage = true;
 
-        for (const group of groups) {
-            const nameEl = group.querySelector(SELECTORS.groupName);
-            const groupName = nameEl?.textContent.trim() || 'Без имени';
-            let groupSuccess = true;
-
-            try {
-                await performActionOnGroup(group, "Достроить даты", TEXTS.buildDone);
-            } catch (e) {
-                console.warn(LOG_TAG, `Ошибка достройки для ${groupName}:`, e);
-                groupSuccess = false;
+        // 2. ЦИКЛ ПО СТРАНИЦАМ
+        while (hasNextPage) {
+            console.log(LOG_TAG, `--- Обработка страницы ${page} ---`);
+            
+            let groupsCount = 0;
+            for (let w = 0; w < 10; w++) {
+                groupsCount = getFreshGroups().length;
+                if (groupsCount > 0) break;
+                await sleep(500);
             }
 
-            try {
-                await performActionOnGroup(group, "Пересчитать даты", TEXTS.recalcDone);
-            } catch (e) {
-                console.warn(LOG_TAG, `Ошибка пересчета для ${groupName}:`, e);
-                groupSuccess = false;
+            if (groupsCount === 0) {
+                console.warn(LOG_TAG, `Не удалось найти классы на странице ${page}.`);
+                break;
             }
 
-            if (groupSuccess) {
-                showNotification(`${groupName}: успешно обработано`, true);
-                successCount++;
+            // 3. ЦИКЛ ПО ГРУППАМ
+            for (let i = 0; i < groupsCount; i++) {
+                let currentGroups = getFreshGroups();
+                if (!currentGroups[i]) {
+                    await sleep(1500);
+                    currentGroups = getFreshGroups();
+                }
+                
+                const group = currentGroups[i];
+                if (!group) continue;
+
+                const nameEl = group.querySelector(SELECTORS.groupName);
+                const groupName = nameEl?.textContent.trim() || 'Без имени';
+                let groupSuccess = true;
+
+                try {
+                    await performActionOnGroup(group, "Достроить даты", TEXTS.buildDone);
+                } catch (e) {
+                    groupSuccess = false;
+                }
+
+                try {
+                    await performActionOnGroup(group, "Пересчитать даты", TEXTS.recalcDone);
+                } catch (e) {
+                    groupSuccess = false;
+                }
+
+                if (groupSuccess) {
+                    showNotification(`${groupName}: успешно`, true);
+                    successCount++;
+                    // УСПЕХ: Делаем микро-паузу от 100 до 500 мс!
+                    await randomSleep(100, 500);
+                } else {
+                    showNotification(`${groupName}: ошибка`, false);
+                    failGroups.push(groupName);
+                    // ОШИБКА: Ждем чуть дольше (1.5 сек), чтобы дать сайту "отвиснуть"
+                    await sleep(1500);
+                }
+            }
+
+            // 4. ПЕРЕКЛЮЧЕНИЕ ПАГИНАЦИИ
+            // Собираем ВСЕ кнопки "Вперед" на странице
+            const nextBtns = Array.from(document.querySelectorAll('button[data-test-component="undefined-nextPage-iconButtonComponent"]'));
+            
+            // Ищем ту, которая физически видна на экране (offsetParent) и не заблокирована
+            const nextBtn = nextBtns.find(btn => btn.offsetParent !== null && !btn.disabled && !btn.hasAttribute('disabled'));
+            
+            if (nextBtn) {
+                console.log(LOG_TAG, `Группы на странице ${page} закончились. Кликаем "Вперед"...`);
+                mouseClick(nextBtn);
+                page++;
+                // Ждем 2 секунды, чтобы новая порция классов успела загрузиться
+                await sleep(2000); 
             } else {
-                showNotification(`${groupName}: возникла ошибка`, false);
-                failGroups.push(groupName);
+                console.log(LOG_TAG, 'Достигнута последняя страница КТП.');
+                hasNextPage = false;
             }
         }
 
-        console.log(LOG_TAG, `Построение КТП завершено. Успешно: ${successCount}`);
+        console.log(LOG_TAG, `Построение КТП завершено. Всего успешно: ${successCount}`);
         showFinalModal();
     }
 
@@ -166,26 +208,14 @@ window.initKtpHelper = function () {
         }
     }
 
-    async function openKtpAndShowAll() {
-        try {
-            const ktpContainers = document.querySelectorAll('.xy2L_nBvEClr4W24CmTA._9oOAfoqlLpn0ax5HVzg.TKVLD5v7YAbPy7SGbTMY');
-            if (ktpContainers.length < 3) return false;
-
+    async function openKtpAccordion() {
+        const ktpContainers = document.querySelectorAll(SELECTORS.ktpButtons);
+        if (ktpContainers.length >= 3) {
             const firstButton = ktpContainers[2].querySelector('button');
-            if (firstButton) { firstButton.click(); await sleep(500); }
-
-            const spans10 = Array.from(document.querySelectorAll('span')).filter(el => el.textContent.trim() === 'Отображать по 10');
-            if (spans10.length >= 3) {
-                const btn10 = spans10[2].closest('div')?.querySelector('button');
-                if (btn10) { btn10.click(); await sleep(500); }
+            if (firstButton) {
+                mouseClick(firstButton);
+                await sleep(1000);
             }
-
-            const liAll = document.querySelector('li[data-test-component="undefined-selectLimit-Отображать все"]');
-            if (liAll) { liAll.click(); await sleep(500); }
-
-            return true;
-        } catch (e) {
-            return false;
         }
     }
 
@@ -193,7 +223,9 @@ window.initKtpHelper = function () {
         if (!el) return;
         el.scrollIntoView({ block: 'center', inline: 'center' });
         const opts = { bubbles: true, cancelable: true, view: window, button: 0 };
+        el.dispatchEvent(new PointerEvent('pointerdown', opts));
         el.dispatchEvent(new MouseEvent('mousedown', opts));
+        el.dispatchEvent(new PointerEvent('pointerup', opts));
         el.dispatchEvent(new MouseEvent('mouseup', opts));
         el.dispatchEvent(new MouseEvent('click', opts));
     }

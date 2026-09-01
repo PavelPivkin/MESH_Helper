@@ -11,7 +11,21 @@
     };
 
     window.initSchedulePDF = () => {
+        // Проверяем при первичном запуске
         if (location.href.includes('schedule')) injectPrintButton();
+
+        // Помещаем Observer ВНУТРЬ функции инициализации, 
+        // чтобы он работал только если расширение включено
+        let isScheduled = false;
+        new MutationObserver(() => {
+            if (isScheduled) return;
+            isScheduled = true;
+            window.requestAnimationFrame(() => {
+                if (location.href.includes('schedule')) injectPrintButton();
+                else document.getElementById('mesh-print-schedule-btn')?.remove();
+                isScheduled = false;
+            });
+        }).observe(document.body, { childList: true, subtree: true });
     };
 
     function injectPrintButton() {
@@ -226,15 +240,4 @@
         if (win) { win.document.write(html); win.document.close(); } 
         else alert('Браузер заблокировал всплывающее окно. Разрешите их в настройках.');
     }
-
-    let isScheduled = false;
-    new MutationObserver(() => {
-        if (isScheduled) return;
-        isScheduled = true;
-        window.requestAnimationFrame(() => {
-            if (location.href.includes('schedule')) injectPrintButton();
-            else document.getElementById('mesh-print-schedule-btn')?.remove();
-            isScheduled = false;
-        });
-    }).observe(document.body, { childList: true, subtree: true });
 })();
