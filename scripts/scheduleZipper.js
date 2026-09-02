@@ -149,8 +149,6 @@ window.initScheduleZipper = function () {
         // Функция, которая делает реальную работу
         const executeModifications = () => {
             if (isTogglingWeekend) return;
-            
-            // 1. Блокируем Обсервер, чтобы он не реагировал на наши же изменения
             isProcessingDom = true; 
 
             if (location.href.includes('schedule')) {
@@ -161,7 +159,6 @@ window.initScheduleZipper = function () {
                 document.getElementById('mshhlpr-schedule-controls')?.remove();
             }
 
-            // 2. Ждем 2 кадра (чтобы браузер успел применить наши изменения в DOM) и снимаем блокировку
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     isProcessingDom = false;
@@ -169,22 +166,15 @@ window.initScheduleZipper = function () {
             });
         };
 
-        // Обработчик мутаций (Debounce)
         const observerHandler = () => {
-            // Игнорируем мутации, если мы сами сейчас меняем DOM
             if (isProcessingDom || isTogglingWeekend) return;
-
-            // Если МЭШ продолжает что-то дорисовывать — сбрасываем таймер
             if (debounceTimer) clearTimeout(debounceTimer);
-            
-            // Ждем 250 мс "тишины" в DOM перед запуском перестройки и сбором статистики
             debounceTimer = setTimeout(executeModifications, 250);
         };
 
         mainObserver = new MutationObserver(observerHandler);
         mainObserver.observe(document.body, { childList: true, subtree: true });
         
-        // Первичный запуск без задержки
         executeModifications();
     }
 
@@ -208,9 +198,10 @@ window.initScheduleZipper = function () {
                 return Math.abs(prev.start - startMins) <= Math.abs(bell.start - startMins) ? prev.num : bell.num;
             }
         }
-
         return PARSED_BELLS[PARSED_BELLS.length - 1]?.num || (fallbackIndex || 1);
     }
+
+
 
     async function getCabinetSilently(cardInner) {
         if (!cardInner) return null;
@@ -227,9 +218,10 @@ window.initScheduleZipper = function () {
 
         if (cardId && cabCache[cardId]) return cabCache[cardId];
 
+        // БЕЗОПАСНОЕ СКРЫТИЕ ДЛЯ REACT (без display: none)
         const silentStyle = document.createElement('style');
         silentStyle.id = 'msh-silent-popper-hide';
-        silentStyle.textContent = 'div[role="tooltip"].MuiPopper-root, div[role="tooltip"].zGtSdhndEVAwp_Wmlido { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }';
+        silentStyle.textContent = 'div[role="tooltip"] { opacity: 0 !important; pointer-events: none !important; position: absolute !important; z-index: -9999 !important; }';
         document.head.appendChild(silentStyle);
 
         const target = cardInner.querySelector(SELECTORS.cabinetMouseTarget) || cardInner;
@@ -275,7 +267,6 @@ window.initScheduleZipper = function () {
         timeRow.appendChild(cabDiv);
     }
 
-    // Автоматическое скрытие пустых суббот и воскресений через нативные настройки
     async function checkAndSyncEmptyWeekends(days) {
         if (isTogglingWeekend || !STATE.zip) return;
         const hdrs = document.querySelectorAll(SELECTORS.summaryHeader + ' ' + SELECTORS.header);
@@ -297,36 +288,78 @@ window.initScheduleZipper = function () {
         setTimeout(() => { isTogglingWeekend = false; }, 200);
     }
 
-    // Быстрый переход в журнал класса при клике на название класса
-    async function quickOpenJournal(lessonCard) {
-        const target = lessonCard.querySelector(SELECTORS.cabinetMouseTarget) || lessonCard;
-        ['mouseover', 'mouseenter', 'click'].forEach(ev => target.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
+    // --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ПЕРЕХОДА (УРОК / ЖУРНАЛ) ---
+    async function executeCardAction(lessonCard, triggerEl, buttonText) {
+        if (triggerEl) triggerEl.style.opacity = '0.5'; // Визуальный отклик
 
+        const target = lessonCard.querySelector(SELECTORS.cabinetMouseTarget) || lessonCard;
+        const events = ['mouseover', 'mouseenter'];
+        const outEvents = ['mouseout', 'mouseleave'];
+        const clickEvents = ['mousedown', 'mouseup', 'click'];
+
+        // Эмулируем наведение
+        events.forEach(ev => target.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
+
+        // Ждем тултип и кликаем
         for (let i = 0; i < 15; i++) {
-            const buttons = Array.from(document.querySelectorAll('button'));
-            const journalBtn = buttons.find(b => b.textContent.includes('К журналу') && b.offsetParent !== null);
-            if (journalBtn) {
-                journalBtn.click();
-                return;
-            }
             await new Promise(r => setTimeout(r, 20));
+            // Ищем нужную кнопку в DOM
+            const targetBtn = Array.from(document.querySelectorAll('button'))
+                .find(b => b.textContent.includes(buttonText) && b.offsetParent !== null);
+            
+            if (targetBtn) {
+                clickEvents.forEach(ev => targetBtn.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true, view: window })));
+                break; // Выходим из цикла после клика
+            }
         }
+
+        // Снимаем наведение и возвращаем прозрачность
+        outEvents.forEach(ev => target.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
+        if (triggerEl) triggerEl.style.opacity = '1';
     }
 
-    // Делегированный слушатель прямого клика по классу
+    // --- ДЕЛЕГИРОВАННЫЙ СЛУШАТЕЛЬ КЛИКОВ И ПОДСКАЗОК ПО КАРТОЧКЕ ---
     if (!window.__meshScheduleJournalBind) {
+        // Добавление и очистка всплывающих подсказок в зависимости от режима сжатия
+        document.addEventListener('mouseover', (e) => {
+            const groupEl = e.target.closest(SELECTORS.group);
+            const marksEl = e.target.closest(SELECTORS.btnMark);
+            const hwEl = e.target.closest(SELECTORS.btnHw);
+
+            // Если сжатие выключено — принудительно стираем подсказки
+            if (!STATE.zip) {
+                if (groupEl && groupEl.title) groupEl.title = '';
+                if (marksEl && marksEl.title) marksEl.title = '';
+                if (hwEl && hwEl.title) hwEl.title = '';
+                return;
+            }
+
+            // Если сжатие включено — выставляем подсказки
+            if (groupEl && !groupEl.title) groupEl.title = 'Перейти в журнал класса';
+            if (marksEl && !marksEl.title) marksEl.title = 'Перейти в журнал класса';
+            if (hwEl && !hwEl.title) hwEl.title = 'Перейти к уроку и домашнему заданию';
+        }, true);
+
+        // Обработка кликов
         document.addEventListener('click', async (e) => {
             if (!STATE.zip) return;
-            const groupEl = e.target.closest(SELECTORS.group);
-            if (!groupEl) return;
 
-            const lessonCard = groupEl.closest(SELECTORS.lesson);
+            const groupEl = e.target.closest(SELECTORS.group);
+            const marksEl = e.target.closest(SELECTORS.btnMark);
+            const hwEl = e.target.closest(SELECTORS.btnHw);
+            const lessonCard = e.target.closest(SELECTORS.lesson);
+
             if (!lessonCard) return;
 
-            e.preventDefault();
-            e.stopPropagation();
-            await quickOpenJournal(lessonCard);
+            if (groupEl || marksEl) {
+                e.preventDefault(); e.stopPropagation();
+                await executeCardAction(lessonCard, marksEl || groupEl, 'К журналу');
+            } else if (hwEl) {
+                e.preventDefault(); e.stopPropagation();
+                await executeCardAction(lessonCard, hwEl, 'К уроку');
+            }
         }, true);
+
         window.__meshScheduleJournalBind = true;
     }
 
@@ -360,10 +393,26 @@ window.initScheduleZipper = function () {
                 const hVal = parseFloat(wrapper.dataset.meshOrigHeight) || 104;
                 maxLessonBottom = Math.max(maxLessonBottom, topVal + hVal);
 
-                const grpName = l.querySelector(CONFIG.SEL.group)?.textContent.toLowerCase() || '';
+                const grpEl = l.querySelector(CONFIG.SEL.group);
+                const grpName = grpEl?.textContent.toLowerCase() || '';
                 const isNdo = CONFIG.NDO_KEYWORDS.some(kw => grpName.includes(kw));
                 const timeText = l.querySelector(CONFIG.SEL.time)?.textContent.trim() || '';
                 const slotNum = getLessonSlotIndex(timeText, lIdx + 1);
+
+                // Установка или сброс подсказок в зависимости от режима сжатия
+                const mrkBadge = l.querySelector(CONFIG.SEL.btnMark);
+                const hwBadge = l.querySelector(CONFIG.SEL.btnHw);
+
+                if (STATE.zip) {
+                    if (grpEl) grpEl.title = 'Перейти в журнал класса';
+                    if (mrkBadge) mrkBadge.title = 'Перейти в журнал класса';
+                    if (hwBadge) hwBadge.title = 'Перейти к уроку и домашнему заданию';
+                } else {
+                    if (grpEl) grpEl.title = '';
+                    if (mrkBadge) mrkBadge.title = '';
+                    if (hwBadge) hwBadge.title = '';
+                }
+
                 const card = {
                     dayEl: day,
                     dayIdx,
@@ -542,18 +591,11 @@ window.initScheduleZipper = function () {
                 if (isMissingHw) missingHw.push(grp);
                 if (isMissingMark) missingMarks.push(grp);
 
-                // --- УМНАЯ ПРОВЕРКА КТП ---
                 const cdDiv = l.querySelector('.cdISCvPwy4Q2oujR');
                 const spans = cdDiv ? Array.from(cdDiv.querySelectorAll('span')) : [];
                 
-                // В МЭШ первый span — это группа/учитель. Второй span — это тема (если она есть).
-                // Если КТП нет, верстка сдвигается, и вторым спаном становится корпус ("Корпус №1").
                 const secondSpanText = spans[1] ? spans[1].textContent.trim().toLowerCase() : '';
                 
-                // Урок считается без КТП, если:
-                // 1. Второго спана нет вообще
-                // 2. Текст второго спана пустой
-                // 3. Во втором спане записан корпус, кабинет или другие технические данные (верстка съехала)
                 const isTopicMissing = !spans[1] || 
                                        secondSpanText.length === 0 || 
                                        secondSpanText.includes('корпус') || 
@@ -773,16 +815,22 @@ window.initScheduleZipper = function () {
                 overflow: hidden !important;
                 line-height: 1.2 !important;
             }
+
+            /* --- СТИЛИЗАЦИЯ КЛАССА КАК КЛИКАБЕЛЬНОЙ ССЫЛКИ С ПОДЧЁРКИВАНИЕМ --- */
             body.mshhlpr-zipping-active .cdISCvPwy4Q2oujR > span:first-child,
             body.mshhlpr-zipping-active .As5rq3Q894A706VT {
                 cursor: pointer !important;
-                transition: color 0.15s ease, text-decoration 0.15s ease !important;
+                color: #2e7d32 !important;
+                text-decoration: underline !important;
+                text-underline-offset: 2px !important;
+                transition: opacity 0.15s ease, color 0.15s ease !important;
             }
             body.mshhlpr-zipping-active .cdISCvPwy4Q2oujR > span:first-child:hover,
             body.mshhlpr-zipping-active .As5rq3Q894A706VT:hover {
-                color: #2e7d32 !important;
-                text-decoration: underline !important;
+                color: #1b5e20 !important;
+                opacity: 0.8 !important;
             }
+
             body.mshhlpr-zipping-active .m0Kra9tNIDzJFtd8 {
                 height: 104px !important;
             }
@@ -795,6 +843,45 @@ window.initScheduleZipper = function () {
             body.mshhlpr-zipping-active .nkAfYFPTIKgFNq2L > div[style*="position: absolute"] {
                 transition: top 0.2s ease, width 0.2s ease, left 0.2s ease !important;
             }
+
+            /* --- ИСПРАВЛЕНИЕ: СКРЫВАЕМ ТОЛЬКО ПОДСКАЗКИ УРОКОВ, НЕ ТРОГАЯ МЕНЮ НАСТРОЕК --- */
+            body.mshhlpr-zipping-active div[role="tooltip"].MuiPopper-root:not(:has(input)):not(:has([data-test-component*="toggle"])),
+            body.mshhlpr-zipping-active div[role="tooltip"].zGtSdhndEVAwp_Wmlido:not(:has(input)):not(:has([data-test-component*="toggle"])) {
+                opacity: 0 !important;
+                pointer-events: none !important;
+                position: absolute !important;
+                z-index: -9999 !important;
+            }
+
+            /* Принудительный показ и кликабельность меню «Настройки отображения» */
+            button[data-test-component="scheduleHeaderSettingsView"] {
+                position: relative !important;
+                z-index: 100 !important;
+                pointer-events: auto !important;
+                cursor: pointer !important;
+            }
+            div.MuiPopper-root:has([data-test-component*="toggle"]),
+            div.MuiPopper-root:has(input[type="checkbox"]) {
+                opacity: 1 !important;
+                pointer-events: auto !important;
+                z-index: 999999 !important;
+                visibility: visible !important;
+                display: block !important;
+            }
+
+            /* --- СТИЛИЗАЦИЯ ИКОНОК ДЗ И ОЦЕНОК --- */
+            body.mshhlpr-zipping-active [data-test-component*="Home-badgeStatus"],
+            body.mshhlpr-zipping-active [data-test-component*="Book-badgeStatus"] {
+                cursor: pointer !important;
+                transition: transform 0.15s ease, opacity 0.15s ease !important;
+                border-radius: 4px !important;
+            }
+            body.mshhlpr-zipping-active [data-test-component*="Home-badgeStatus"]:hover,
+            body.mshhlpr-zipping-active [data-test-component*="Book-badgeStatus"]:hover {
+                transform: scale(1.18) !important;
+                opacity: 0.85 !important;
+            }
+
             .kDceJpxARRwfSjiN.mshhlpr-custom-ruler-active {
                 position: relative !important;
                 overflow: hidden !important;

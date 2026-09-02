@@ -11,11 +11,8 @@
     };
 
     window.initSchedulePDF = () => {
-        // Проверяем при первичном запуске
         if (location.href.includes('schedule')) injectPrintButton();
 
-        // Помещаем Observer ВНУТРЬ функции инициализации, 
-        // чтобы он работал только если расширение включено
         let isScheduled = false;
         new MutationObserver(() => {
             if (isScheduled) return;
@@ -46,23 +43,29 @@
         document.querySelectorAll('.mshhlpr-modal-overlay').forEach(el => el.remove());
         const ov = document.createElement('div');
         ov.className = 'mshhlpr-modal-overlay';
+        
+        const opts = { subject: false, cabinet: false, ndo: false };
+        const items = [['subject', 'Название предмета'], ['cabinet', 'Кабинет'], ['ndo', 'Добавить НДО']];
+
         ov.innerHTML = `
-            <div class="mshhlpr-modal-content" style="width:420px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.3);">
-                <div class="mshhlpr-modal-header" style="padding:16px 20px;display:flex;justify-content:space-between;">
+            <div class="mshhlpr-modal-content" style="width:400px;text-align:center;">
+                <div class="mshhlpr-modal-header" style="padding:14px 18px;display:flex;justify-content:space-between;">
                     <span>🖨️ Настройка печати расписания</span>
-                    <button class="mshhlpr-modal-close" style="cursor:pointer;background:0 0;border:0;font-size:18px;">&times;</button>
+                    <button class="mshhlpr-modal-close" style="cursor:pointer;background:0;border:0;font-size:18px;">&times;</button>
                 </div>
-                <div class="mshhlpr-modal-body" style="display:flex;flex-direction:column;padding:20px;gap:15px;">
-                    <div style="font-size:13px;color:#555;text-align:left;line-height:1.4;">Настройте параметры вывода данных перед печатью:<br>(По умолчанию печатается только класс)</div>
-                    <div style="display:flex;flex-direction:column;gap:10px;background:#f5f5f5;padding:12px;border-radius:8px;border:1px solid #e0e0e0;align-items:flex-start;">
-                        ${[['subject', 'Название предмета'], ['cabinet', 'Кабинет'], ['ndo', 'Добавить НДО']].map(([id, lbl]) => `
-                            <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:bold;color:#333;cursor:pointer;user-select:none;">
-                                <input type="checkbox" id="msh-opt-${id}" style="width:16px;height:16px;cursor:pointer;">
-                                <span>${lbl}</span>
-                            </label>`).join('')}
+                <div class="mshhlpr-modal-body" style="flex-direction:column;padding:18px;gap:12px;">
+                    <div style="font-size:13px;color:#666;text-align:left;">Выберите данные для вывода (по умолчанию только класс):</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;background:#f5f5f5;padding:12px 16px;border-radius:8px;border:1px solid #e0e0e0;">
+                        ${items.map(([k, lbl]) => `
+                            <div class="msh-tgl-row" data-key="${k}" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;padding:4px 0;">
+                                <span style="font-size:13px;font-weight:600;color:#333;">${lbl}</span>
+                                <div style="width:34px;height:18px;background:#ccc;border-radius:10px;position:relative;transition:.25s;">
+                                    <div style="width:14px;height:14px;background:#fff;border-radius:50%;position:absolute;top:2px;left:2px;transition:.25s;box-shadow:0 1px 2px rgba(0,0,0,.2);"></div>
+                                </div>
+                            </div>`).join('')}
                     </div>
-                    <button id="msh-print-dom" class="mshhlpr-universal-toggle-btn" style="justify-content:center;cursor:pointer;padding:10px!important;margin-top:5px;">
-                        <span class="mshhlpr-universal-toggle-text" style="font-size:13px!important;">📄 Сформировать расписание</span>
+                    <button id="msh-print-dom" class="mshhlpr-universal-toggle-btn" style="justify-content:center;cursor:pointer;width:100%;height:36px;margin-top:4px;">
+                        <span class="mshhlpr-universal-toggle-text">📄 Сформировать расписание</span>
                     </button>
                 </div>
             </div>`;
@@ -72,13 +75,21 @@
         ov.querySelector('.mshhlpr-modal-close').onclick = close;
         ov.onclick = e => e.target === ov && close();
 
+        // Компактное переключение тумблеров
+        ov.querySelectorAll('.msh-tgl-row').forEach(row => {
+            const k = row.dataset.key;
+            const bar = row.lastElementChild;
+            const knob = bar.firstElementChild;
+            row.onclick = () => {
+                opts[k] = !opts[k];
+                bar.style.background = opts[k] ? '#4caf50' : '#ccc';
+                knob.style.left = opts[k] ? '18px' : '2px';
+            };
+        });
+
         ov.querySelector('#msh-print-dom').onclick = () => {
             close();
-            printFromDOM({
-                showSubject: ov.querySelector('#msh-opt-subject').checked,
-                showCabinet: ov.querySelector('#msh-opt-cabinet').checked,
-                showNdo: ov.querySelector('#msh-opt-ndo').checked
-            });
+            printFromDOM({ showSubject: opts.subject, showCabinet: opts.cabinet, showNdo: opts.ndo });
         };
     }
 
