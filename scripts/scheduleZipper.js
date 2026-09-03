@@ -61,8 +61,12 @@ const SELECTORS = {
     statStack: '.mshhlpr-stat-stack',
     statPillClass: 'mshhlpr-stat-pill',
     settingsBtn: 'button[data-test-component="scheduleHeaderSettingsView"]',
+    infoBtn: 'button[data-test-component="scheduleHeaderExportExcel"]',
     toggleContainer: 'div[data-test-component="undefined-toggleContainer"]'
 };
+
+// Переменная отслеживания состояния показа кабинета (по умолчанию true, если еще не считывалось)
+let isCabinetEnabled = sessionStorage.getItem('msh_cabinet_enabled') !== 'false';
 
 window.initScheduleZipper = function () {
     console.log('[МЭШ][scheduleZipper.js] Модуль расписания запущен.');
@@ -248,6 +252,8 @@ window.initScheduleZipper = function () {
     }
 
     async function ensureCabinetRendered(cardElement) {
+        if (!isCabinetEnabled) return;
+
         const cardInner = cardElement.querySelector(SELECTORS.cardInner);
         if (!cardInner) return;
 
@@ -255,7 +261,7 @@ window.initScheduleZipper = function () {
         if (!timeRow || timeRow.querySelector(SELECTORS.cabinetMarker)) return;
 
         const cabText = await getCabinetSilently(cardInner);
-        if (!cabText || !timeRow.isConnected || timeRow.querySelector(SELECTORS.cabinetMarker)) return;
+        if (!cabText || !timeRow.isConnected || timeRow.querySelector(SELECTORS.cabinetMarker) || !isCabinetEnabled) return;
 
         const cabDiv = document.createElement('div');
         cabDiv.className = 'uejslo_PZAjKN3xN msh-injected-cab';
@@ -272,17 +278,28 @@ window.initScheduleZipper = function () {
         const hdrs = document.querySelectorAll(SELECTORS.summaryHeader + ' ' + SELECTORS.header);
         const emptySat = days.some((d, i) => (hdrs[i]?.textContent || '').toLowerCase().includes('сб') && !d.querySelector(CONFIG.SEL.lesson));
         const emptySun = days.some((d, i) => (hdrs[i]?.textContent || '').toLowerCase().includes('вс') && !d.querySelector(CONFIG.SEL.lesson));
-        if (!emptySat && !emptySun) return;
+        
+        // Проверяем, нужно ли первично определить статус кабинета
+        const needCabCheck = sessionStorage.getItem('msh_cabinet_enabled') === null;
+        if (!emptySat && !emptySun && !needCabCheck) return;
 
         const btn = document.querySelector(SELECTORS.settingsBtn);
         if (!btn) return;
         isTogglingWeekend = true;
         btn.click();
         await new Promise(r => setTimeout(r, 50));
+        
         document.querySelectorAll(SELECTORS.toggleContainer).forEach(c => {
             const txt = c.textContent.toLowerCase(), inp = c.querySelector('input');
-            if (((emptySat && txt.includes('суббот')) || (emptySun && txt.includes('воскрес'))) && inp?.checked) (inp || c).click();
+            if (txt.includes('кабинет') && inp) {
+                isCabinetEnabled = inp.checked;
+                sessionStorage.setItem('msh_cabinet_enabled', isCabinetEnabled);
+            }
+            if (((emptySat && txt.includes('суббот')) || (emptySun && txt.includes('воскрес'))) && inp?.checked) {
+                (inp || c).click();
+            }
         });
+        
         await new Promise(r => setTimeout(r, 50));
         btn.click();
         setTimeout(() => { isTogglingWeekend = false; }, 200);
@@ -318,15 +335,13 @@ window.initScheduleZipper = function () {
         if (triggerEl) triggerEl.style.opacity = '1';
     }
 
-    // --- ДЕЛЕГИРОВАННЫЙ СЛУШАТЕЛЬ КЛИКОВ И ПОДСКАЗОК ПО КАРТОЧКЕ ---
+    // --- ДЕЛЕГИРОВАННЫЙ СЛУШАТЕЛЬ КЛИКОВ, ПОДСКАЗОК И ТУМБЛЕРОВ ---
     if (!window.__meshScheduleJournalBind) {
-        // Добавление и очистка всплывающих подсказок в зависимости от режима сжатия
         document.addEventListener('mouseover', (e) => {
             const groupEl = e.target.closest(SELECTORS.group);
             const marksEl = e.target.closest(SELECTORS.btnMark);
             const hwEl = e.target.closest(SELECTORS.btnHw);
 
-            // Если сжатие выключено — принудительно стираем подсказки
             if (!STATE.zip) {
                 if (groupEl && groupEl.title) groupEl.title = '';
                 if (marksEl && marksEl.title) marksEl.title = '';
@@ -334,10 +349,22 @@ window.initScheduleZipper = function () {
                 return;
             }
 
-            // Если сжатие включено — выставляем подсказки
             if (groupEl && !groupEl.title) groupEl.title = 'Перейти в журнал класса';
             if (marksEl && !marksEl.title) marksEl.title = 'Перейти в журнал класса';
             if (hwEl && !hwEl.title) hwEl.title = 'Перейти к уроку и домашнему заданию';
+        }, true);
+
+        // Отслеживаем переключение тумблеров в меню настроек отображения
+        document.addEventListener('change', (e) => {
+            const container = e.target.closest(SELECTORS.toggleContainer);
+            if (container && container.textContent.toLowerCase().includes('кабинет')) {
+                const inp = container.querySelector('input');
+                if (inp) {
+                    isCabinetEnabled = inp.checked;
+                    sessionStorage.setItem('msh_cabinet_enabled', isCabinetEnabled);
+                    runPipeline();
+                }
+            }
         }, true);
 
         // Обработка кликов
@@ -372,6 +399,11 @@ window.initScheduleZipper = function () {
         document.body.classList.toggle('mshhlpr-zipping-active', STATE.zip);
         document.querySelectorAll(SELECTORS.elasticWindow).forEach(el => el.remove());
 
+        // Если показ кабинетов отключен, зачищаем ранее внедренные элементы
+        if (!isCabinetEnabled) {
+            document.querySelectorAll('.msh-injected-cab').forEach(el => el.remove());
+        }
+
         const slotPitch = CONFIG.CARD_HEIGHT + CONFIG.CARD_GAP;
         const dayCardGroups = new Map();
 
@@ -399,7 +431,6 @@ window.initScheduleZipper = function () {
                 const timeText = l.querySelector(CONFIG.SEL.time)?.textContent.trim() || '';
                 const slotNum = getLessonSlotIndex(timeText, lIdx + 1);
 
-                // Установка или сброс подсказок в зависимости от режима сжатия
                 const mrkBadge = l.querySelector(CONFIG.SEL.btnMark);
                 const hwBadge = l.querySelector(CONFIG.SEL.btnHw);
 
@@ -467,7 +498,8 @@ window.initScheduleZipper = function () {
                     if (count === 1) {
                         c.wrapper.style.width = '100%';
                         c.wrapper.style.left = '0%';
-                        if (STATE.zip) ensureCabinetRendered(c.el);
+                        if (STATE.zip && isCabinetEnabled) ensureCabinetRendered(c.el);
+                        else c.el.querySelector('.msh-injected-cab')?.remove();
                     } else if (count > 1) {
                         const widthPct = 100 / count;
                         c.wrapper.style.width = `${widthPct}%`;
@@ -844,29 +876,29 @@ window.initScheduleZipper = function () {
                 transition: top 0.2s ease, width 0.2s ease, left 0.2s ease !important;
             }
 
-            /* --- ИСПРАВЛЕНИЕ: СКРЫВАЕМ ТОЛЬКО ПОДСКАЗКИ УРОКОВ, НЕ ТРОГАЯ МЕНЮ НАСТРОЕК --- */
-            body.mshhlpr-zipping-active div[role="tooltip"].MuiPopper-root:not(:has(input)):not(:has([data-test-component*="toggle"])),
-            body.mshhlpr-zipping-active div[role="tooltip"].zGtSdhndEVAwp_Wmlido:not(:has(input)):not(:has([data-test-component*="toggle"])) {
+            /* --- ГЛУШИМ ТОЛЬКО ПОДСКАЗКИ УРОКОВ, НЕ ЗАТРАГИВАЯ МЕНЮ С ИНПУТАМИ И СЛУЖЕБНЫЕ ПОПОВЕРЫ --- */
+            body.mshhlpr-zipping-active div[role="tooltip"].MuiPopper-root:not(:has(input)):not(:has([data-test-component*="iconButtonInPopover"])) {
                 opacity: 0 !important;
                 pointer-events: none !important;
                 position: absolute !important;
                 z-index: -9999 !important;
             }
 
-            /* Принудительный показ и кликабельность меню «Настройки отображения» */
-            button[data-test-component="scheduleHeaderSettingsView"] {
+            /* Доступность кнопок настроек и информации в шапке */
+            button[data-test-component="scheduleHeaderSettingsView"],
+            button[data-test-component="scheduleHeaderExportExcel"] {
                 position: relative !important;
                 z-index: 100 !important;
                 pointer-events: auto !important;
                 cursor: pointer !important;
             }
-            div.MuiPopper-root:has([data-test-component*="toggle"]),
-            div.MuiPopper-root:has(input[type="checkbox"]) {
+
+            /* Показ окон с инпутами (настройки) и поповеров с крестиком (информация) */
+            div.MuiPopper-root:has(input),
+            div.MuiPopper-root:has([data-test-component*="iconButtonInPopover"]) {
                 opacity: 1 !important;
                 pointer-events: auto !important;
                 z-index: 999999 !important;
-                visibility: visible !important;
-                display: block !important;
             }
 
             /* --- СТИЛИЗАЦИЯ ИКОНОК ДЗ И ОЦЕНОК --- */

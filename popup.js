@@ -4,6 +4,7 @@
     console.log('[МЭШ][popup.js] Инициализация всплывающего окна.');
 
     const extensionToggle = document.getElementById('extensionToggle');
+    const darkThemeToggle = document.getElementById('darkThemeToggle');
     const versionText = document.getElementById('versionText');
 
     const manifest = chrome.runtime.getManifest();
@@ -11,9 +12,11 @@
 
     chrome.storage.local.get([
         'extensionEnabled', 
-        'activeTeacher'
+        'activeTeacher',
+        'darkThemeEnabled'
     ], (result) => {
         extensionToggle.checked = (result.extensionEnabled !== false);
+        darkThemeToggle.checked = (result.darkThemeEnabled === true);
 
         const teacherContainer = document.getElementById('activeTeacherContainer');
         const teacherNameSpan = document.getElementById('activeTeacherName');
@@ -80,9 +83,13 @@
         if (areaName === 'session' && changes.msh_network_status) {
             updateStatusUI(changes.msh_network_status.newValue);
         }
+        if (changes.darkThemeEnabled) darkThemeToggle.checked = changes.darkThemeEnabled.newValue === true;
     });
 
     extensionToggle.addEventListener('change', (e) => {
         chrome.storage.local.set({ extensionEnabled: e.target.checked });
+    });
+    darkThemeToggle.addEventListener('change', (e) => {
+        chrome.storage.local.set({ darkThemeEnabled: e.target.checked });
     });
 })();

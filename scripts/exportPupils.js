@@ -14,14 +14,13 @@ window.initExportPupils = function () {
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    // Управление видимостью с учетом !important из styles.css
     const toggleVis = (el, show) => {
         if (!el) return;
         el.classList.toggle('mshhlpr-hidden', !show);
         el.style.setProperty('display', show ? 'inline-flex' : 'none', 'important');
     };
 
-    let activeAbortCtrl = null; // Для отмены фоновых запросов карточки
+    let activeAbortCtrl = null; 
 
     // === 2. ВНЕДРЕНИЕ КНОПКИ В ASIDE ===
     function injectExportButton() {
@@ -118,7 +117,7 @@ window.initExportPupils = function () {
         ov.querySelector('.mshhlpr-modal-close').onclick = close;
         ov.onclick = e => e.target === ov && close();
 
-        let crawlerAbort = { aborted: false }, flatList = [], selectedId = null;
+        let crawlerAbort = { aborted: false }, flatList = [], selectedId = null, currentPid = null;
 
         // Предварительная индексация для мгновенного поиска
         function indexFlatList(groupedData) {
@@ -141,7 +140,6 @@ window.initExportPupils = function () {
             flatList.sort((a, b) => (a["ФИО"] || '').localeCompare(b["ФИО"] || ''));
         }
 
-        // Обновление кнопок и статуса
         function updateState(mode, data = null) {
             const isSync = mode === 'syncing', hasDb = mode === 'has_db';
             toggleVis(btnSync, !isSync);
@@ -163,13 +161,26 @@ window.initExportPupils = function () {
             }
         }
 
-        const checkCache = () => chrome.storage.local.get(['mesh_all_students_data', 'mesh_all_students_date'], r => {
-            if (r.mesh_all_students_data) updateState('has_db', { data: r.mesh_all_students_data, date: r.mesh_all_students_date });
-            else updateState('no_db');
-        });
+        // ИЗОЛИРОВАННАЯ ПРОВЕРКА КЭША
+        async function checkCache() {
+            try {
+                const auth = await getAuth();
+                currentPid = auth.pid; // Запоминаем текущего учителя
+                
+                const keyData = `mesh_students_data_${currentPid}`;
+                const keyDate = `mesh_students_date_${currentPid}`;
+                
+                chrome.storage.local.get([keyData, keyDate], r => {
+                    if (r[keyData]) updateState('has_db', { data: r[keyData], date: r[keyDate] });
+                    else updateState('no_db');
+                });
+            } catch (e) {
+                updateState('no_db');
+            }
+        }
+        
         checkCache();
 
-        // Отрисовка списка поиска
         function renderResults(q = '') {
             const clean = q.trim().toLowerCase(), tokens = clean.split(/\s+/), digits = clean.replace(/\D/g, '');
             const res = !clean ? flatList : flatList.filter(s => tokens.every(t => s._idx.includes(t) || (digits.length >= 3 && s._num.includes(digits))));
@@ -189,7 +200,6 @@ window.initExportPupils = function () {
         }
         srchInp.oninput = () => renderResults(srchInp.value);
 
-        // Карточка ученика (стиль journalTools)
         async function renderStudentCard(st) {
             detailsEmpty.style.display = 'none'; detailsCard.style.display = 'block';
             const id = st["ID System"] || st.id, cls = st.cleanCls || st["Класс"] || '—';
@@ -242,7 +252,6 @@ window.initExportPupils = function () {
                     <div id="msh-c-status" style="font-size:10.5px; color:#94a3b8; text-align:right;">⚡ Данные из кэша. Запрос актуализации...</div>
                 </div>`;
 
-            // Фоновый одиночный запрос с прерыванием предыдущего
             if (activeAbortCtrl) activeAbortCtrl.abort();
             activeAbortCtrl = new AbortController();
             const signal = activeAbortCtrl.signal;
@@ -267,21 +276,40 @@ window.initExportPupils = function () {
             }
         }
 
-        // Действия: Скачивание (ТОЛЬКО по нажатию кнопки)
-        btnExcel.onclick = () => chrome.storage.local.get('mesh_all_students_data', d => d.mesh_all_students_data ? exportToExcel(d.mesh_all_students_data) : alert('База пуста'));
+        // Действия: Скачивание
+        btnExcel.onclick = () => {
+            if (!currentPid) return alert('Ошибка идентификации профиля');
+            chrome.storage.local.get(`mesh_students_data_${currentPid}`, d => {
+                d[`mesh_students_data_${currentPid}`] ? exportToExcel(d[`mesh_students_data_${currentPid}`]) : alert('База пуста');
+            });
+        };
 
-        // Действия: Удаление
+        // Действия: Удаление ИЗОЛИРОВАННОЙ БАЗЫ
         btnDel.onclick = () => {
+            if (!currentPid) return;
             if (!confirm('Удалить сохранённую базу с этого компьютера?')) return;
-            chrome.storage.local.remove(['mesh_all_students_data', 'mesh_all_students_date'], () => {
+            chrome.storage.local.remove([`mesh_students_data_${currentPid}`, `mesh_students_date_${currentPid}`], () => {
                 toggleVis(diffBox, false); updateState('no_db');
             });
         };
 
-        // Действия: Сбор / Обновление
+        // Действия: Сбор / Обновление (с сохранением в изолированный ключ)
         btnSync.onclick = async () => {
             if (typeof XLSX === 'undefined') return alert('Ошибка: XLSX библиотека не найдена.');
-            const oldData = await new Promise(r => chrome.storage.local.get('mesh_all_students_data', d => r(d.mesh_all_students_data || null)));
+            
+            if (!currentPid) {
+                try {
+                    const auth = await getAuth();
+                    currentPid = auth.pid;
+                } catch(e) {
+                    return alert('Не удалось получить токен. Обновите страницу.');
+                }
+            }
+
+            const keyData = `mesh_students_data_${currentPid}`;
+            const keyDate = `mesh_students_date_${currentPid}`;
+
+            const oldData = await new Promise(r => chrome.storage.local.get(keyData, d => r(d[keyData] || null)));
 
             crawlerAbort.aborted = false;
             updateState('syncing');
@@ -301,10 +329,13 @@ window.initExportPupils = function () {
 
                 if (finalData) {
                     const date = new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-                    chrome.storage.local.set({ mesh_all_students_data: finalData, mesh_all_students_date: date }, () => {
+                    const toSave = {};
+                    toSave[keyData] = finalData;
+                    toSave[keyDate] = date;
+
+                    chrome.storage.local.set(toSave, () => {
                         updateState('has_db', { data: finalData, date });
                         renderDiff(diffBox, oldData, finalData);
-                        // Автоскачивание убрано. База просто сохранена в память!
                     });
                 }
             } catch (e) {
@@ -344,7 +375,6 @@ window.initExportPupils = function () {
         let groupsData = await (await fetch(groupsUrl, { headers: { ...headers, "x-mes-subsystem": "journalw" } })).json();
         if (!Array.isArray(groupsData)) groupsData = groupsData.groups || [];
 
-        // Консолидация по уникальным классам (слияние подгрупп/предметов)
         const classMap = new Map();
         groupsData.forEach(g => {
             const cls = cleanClassName(g);
@@ -363,7 +393,6 @@ window.initExportPupils = function () {
             const { cls, ids } = uniqueClasses[i];
             if (!ids.length) { finalData[cls] = []; continue; }
 
-            // Лимит 4 одновременных запроса
             const students = await mapConcurrent(ids, 4, async (sid, sIdx) => {
                 if (abortCtrl.aborted) return null;
                 if (consecErrors >= 4) throw new Error('МЭШ вернул много ошибок подряд (лимит или сбой). Сбор прерван.');
@@ -458,7 +487,6 @@ window.initExportPupils = function () {
     function exportToExcel(data) {
         const wb = XLSX.utils.book_new();
 
-        // Вспомогательный хелпер для извлечения чистых данных родителя
         const extractParent = (pObj, pStr) => {
             if (pObj) {
                 return {
@@ -469,7 +497,6 @@ window.initExportPupils = function () {
                     snils: pObj.snils || "—"
                 };
             }
-            // Резервный парсинг из строки (если база уже была в кэше)
             if (pStr && typeof pStr === 'string' && pStr.trim()) {
                 const lines = pStr.split('\n');
                 const firstLine = lines[0] || '';
@@ -489,7 +516,6 @@ window.initExportPupils = function () {
             return { fio: "—", type: "—", phone: "—", email: "—", snils: "—" };
         };
 
-        // Формирование структуры строки таблицы
         const formatRow = (s, num) => {
             const p1 = extractParent(s.rawParents?.[0], s["Родитель 1"]);
             const p2 = extractParent(s.rawParents?.[1], s["Родитель 2"]);
@@ -507,13 +533,11 @@ window.initExportPupils = function () {
                 "СНИЛС": s["СНИЛС"] || "—",
                 "Логин МЭШ": s["Логин МЭШ"] || "—",
                 "Группа здоровья": s["Группа здоровья"] || "—",
-                // Родитель 1
                 "Родитель 1: ФИО": p1.fio,
                 "Родитель 1: Кем приходится": p1.type,
                 "Родитель 1: Телефон": p1.phone,
                 "Родитель 1: Email": p1.email,
                 "Родитель 1: СНИЛС": p1.snils,
-                // Родитель 2
                 "Родитель 2: ФИО": p2.fio,
                 "Родитель 2: Кем приходится": p2.type,
                 "Родитель 2: Телефон": p2.phone,
@@ -522,7 +546,6 @@ window.initExportPupils = function () {
             };
         };
 
-        // Алгоритм динамического расчёта ширины столбцов по содержимому
         const getColsAutoWidth = (rows) => {
             if (!rows.length) return [];
             return Object.keys(rows[0]).map(key => {
@@ -538,7 +561,6 @@ window.initExportPupils = function () {
             });
         };
 
-        // 1. Сводный лист "Все ученики" (уникальные ученики)
         const allList = [];
         const seen = new Set();
         let gIdx = 1;
@@ -557,7 +579,6 @@ window.initExportPupils = function () {
             XLSX.utils.book_append_sheet(wb, wsAll, "Все ученики");
         }
 
-        // 2. Индивидуальные листы по классам
         Object.entries(data).forEach(([cls, list]) => {
             if (!list.length) return;
             const classRows = list.map((s, i) => formatRow(s, i + 1));
@@ -568,7 +589,6 @@ window.initExportPupils = function () {
             XLSX.utils.book_append_sheet(wb, wsClass, safeSheetName);
         });
 
-        // 3. Выгрузка файла
         const dateStr = new Date().toISOString().slice(0, 10);
         XLSX.writeFile(wb, `База_учеников_${dateStr}.xlsx`);
     }
