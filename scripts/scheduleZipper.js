@@ -150,12 +150,12 @@ window.initScheduleZipper = function () {
     function startObserver() {
         if (mainObserver) mainObserver.disconnect();
 
-        // Функция, которая делает реальную работу
         const executeModifications = () => {
             if (isTogglingWeekend) return;
             isProcessingDom = true; 
 
-            if (location.href.includes('schedule')) {
+            const isSchedule = location.pathname.includes('/schedule') && !location.pathname.includes('/lesson');
+            if (isSchedule) {
                 injectStyles();
                 injectToggleUI();
                 runPipeline();
@@ -172,8 +172,18 @@ window.initScheduleZipper = function () {
 
         const observerHandler = () => {
             if (isProcessingDom || isTogglingWeekend) return;
+
+            // МГНОВЕННОЕ внедрение: если кнопок еще нет в шапке, не ждем таймер задержки!
+            const controlsMissing = location.pathname.includes('/schedule') && 
+                                   !location.pathname.includes('/lesson') && 
+                                   !document.getElementById('mshhlpr-schedule-controls');
+            if (controlsMissing) {
+                executeModifications();
+                return;
+            }
+
             if (debounceTimer) clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(executeModifications, 250);
+            debounceTimer = setTimeout(executeModifications, 120);
         };
 
         mainObserver = new MutationObserver(observerHandler);
@@ -727,15 +737,27 @@ window.initScheduleZipper = function () {
     };
 
     function injectToggleUI() {
-        const aside = document.querySelector(SELECTORS.scheduleAside) || document.querySelector(SELECTORS.asideFallback);
-        if (!aside) return;
+        // 1. Проверяем, что мы находимся именно в расписании недели, а не на странице урока
+        const isSchedule = location.pathname.includes('/schedule') && !location.pathname.includes('/lesson');
+        if (!isSchedule) {
+            document.getElementById(SELECTORS.scheduleControls.replace('#', ''))?.remove();
+            return;
+        }
+
+        // 2. Ищем ТОЛЬКО шапку расписания (по оригинальному классу или наличию шестерёнки настроек недели)
+        const aside = document.querySelector(SELECTORS.scheduleAside) 
+                   || document.querySelector('aside:has(button[data-test-component="scheduleHeaderSettingsView"])');
+
+        // 3. Защита от утечки: запрещаем внедрение внутрь всплывающих шторок, модалок и диалогов ДЗ
+        if (!aside || aside.closest('[role="dialog"], [class*="Drawer"], [class*="Modal"]')) {
+            return;
+        }
 
         let controls = document.querySelector(SELECTORS.scheduleControls);
         if (!controls) {
             const tgl = (id, txt, chk) => `
                 <label class="mshhlpr-universal-toggle-btn mshhlpr-compact-toggle">
                         <span class="mshhlpr-universal-toggle-text">${txt}</span>
-                        <!-- Внутренний стал div -->
                         <div class="mshhlpr-ios-switch mshhlpr-compact-switch">
                             <input type="checkbox" id="${id}" ${chk ? 'checked' : ''}>
                             <span class="mshhlpr-ios-slider"></span>

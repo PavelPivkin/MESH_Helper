@@ -28,6 +28,8 @@
         if (typeof initKtpHelper === 'function') initKtpHelper();
         if (typeof initSchedulePDF === 'function') initSchedulePDF();
         if (typeof initSelfAnalysis === 'function') initSelfAnalysis();
+        if (typeof initNoHomework === 'function') initNoHomework();
+        if (typeof initMathSymbols === 'function') initMathSymbols();
 
         isRunning = true;
     }
