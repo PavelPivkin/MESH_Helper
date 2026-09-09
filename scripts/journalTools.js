@@ -18,7 +18,8 @@ window.initJournalTools = function () {
     let valCfg = null, valCfgLoading = false; 
     let valState = { mode: null, running: false, abort: false, sig: "" };
     let valCache = { grp: null }; 
-    let cellMarksCache = {}, isMuted = false;     
+    let cellMarksCache = {}, isMuted = false;
+    let silentMarkTimeout = null;
 
     const getSuperscript = w => {
         const map = { '1': '', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
@@ -57,6 +58,7 @@ window.initJournalTools = function () {
 
                 if (cellId && (markCellDiv.querySelector('svg[viewBox*="stacked"]') || markCellDiv.querySelector('.reW5yKeh505HpxGYfGSw'))) {
                     if (cellMarksCache[cellId]) return cellMarksCache[cellId];
+                    
                     const activePopper = document.body.querySelector('div[data-test-component^="markCellMarkHoverPopup"]');
                     if (markCellDiv.matches(':hover') || activePopper) {
                         if (activePopper && activePopper.getAttribute('data-test-component')?.includes(cellId.split('-')[1])) {
@@ -66,14 +68,34 @@ window.initJournalTools = function () {
                         return [{ val, weight }];
                     }
 
+                    // Однократное безопасное скрытие всплывающего окна
+                    let silentStyle = document.getElementById('msh-silent-mark-pop');
+                    if (!silentStyle) {
+                        silentStyle = document.createElement('style');
+                        silentStyle.id = 'msh-silent-mark-pop';
+                        silentStyle.textContent = 'div[data-test-component^="markCellMarkHoverPopup"] { opacity: 0 !important; pointer-events: none !important; }';
+                        (document.head || document.documentElement).appendChild(silentStyle);
+                    }
+
                     isMuted = true;
-                    const silentStyle = document.createElement('style'); silentStyle.innerHTML = 'div[data-test-component^="markCellMarkHoverPopup"] { display: none !important; }'; document.head.appendChild(silentStyle);
-                    ['mouseover', 'mouseenter'].forEach(ev => markCellDiv.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
+                    markCellDiv.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
+                    
                     const popper = document.body.querySelector('div[data-test-component^="markCellMarkHoverPopup"]');
                     const stackedMarks = popper ? Array.from(popper.querySelectorAll('.R4p7ZXgwQ59R96TEeVm3')).map(el => ({ val: parseInt(el.textContent.trim()), weight })).filter(m => !isNaN(m.val)) : [];
-                    ['mouseout', 'mouseleave'].forEach(ev => markCellDiv.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
-                    silentStyle.remove(); setTimeout(() => { isMuted = false; }, 0);
-                    if (stackedMarks.length > 0) { cellMarksCache[cellId] = stackedMarks; return stackedMarks; }
+                    
+                    markCellDiv.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, cancelable: true }));
+                    
+                    // Удаляем стиль с небольшой задержкой, чтобы не вызывать дерганье кадров на macOS
+                    clearTimeout(silentMarkTimeout);
+                    silentMarkTimeout = setTimeout(() => { 
+                        document.getElementById('msh-silent-mark-pop')?.remove(); 
+                        isMuted = false; 
+                    }, 50);
+
+                    if (stackedMarks.length > 0) { 
+                        cellMarksCache[cellId] = stackedMarks; 
+                        return stackedMarks; 
+                    }
                 }
             }
             return [{ val, weight }];
@@ -95,9 +117,12 @@ window.initJournalTools = function () {
     }
 
     async function getHeaders() {
-        const { currentBearerToken, currentProfileId } = await chrome.storage.session.get(['currentBearerToken', 'currentProfileId']);
+        const { currentBearerToken, currentProfileId, currentAid } = await chrome.storage.session.get(['currentBearerToken', 'currentProfileId', 'currentAid']);
         if (!currentBearerToken) throw new Error('Сессионные токены не найдены');
-        const aid = getPageAcademicYearId();
+        
+        // Берем aid из хранилища -> затем из URL/ресурсов -> или страхуемся значением по умолчанию
+        const aid = currentAid || getPageAcademicYearId() || new URLSearchParams(location.search).get('academic_year_id') || "13";
+        
         const h = { 
             "authorization": `Bearer ${currentBearerToken}`, 
             "profile-id": currentProfileId || "", 
@@ -105,7 +130,7 @@ window.initJournalTools = function () {
             "x-mes-roleid": "9", 
             "content-type": "application/json" 
         };
-        if (aid) h["aid"] = aid;
+        if (aid) h["aid"] = String(aid);
         return h;
     }
 
@@ -163,21 +188,36 @@ window.initJournalTools = function () {
 
             // Посещаемость (для текущего дня)
             const lvl = profs.find(p => p.classLevelId)?.classLevelId || d.class_level_id;
-            if (lvl && h.aid) {
+            const targetAid = h.aid || "13"; // Гарантируем наличие ID года
+            
+            if (lvl && targetAid) {
                 try {
-                    const dt = new Date(), y = dt.getMonth() >= 8 ? dt.getFullYear() : dt.getFullYear() - 1, today = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
-                    const attRes = await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/attendances?group_ids=${groupId}&class_level_id=${lvl}&academic_year_id=${h.aid}&start_at=01.09.${y}&stop_at=31.08.${y+1}&page=1&per_page=1000`, { headers: { ...h, "x-mes-subsystem": "journalw" } });
+                    const dt = new Date();
+                    const y = dt.getMonth() >= 8 ? dt.getFullYear() : dt.getFullYear() - 1;
+                    const todayRu = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
+                    const todayIso = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+                    const isToday = dStr => (dStr === todayRu || dStr === todayIso);
+                    
+                    const attRes = await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/attendances?group_ids=${groupId}&class_level_id=${lvl}&academic_year_id=${targetAid}&start_at=01.09.${y}&stop_at=31.08.${y+1}&page=1&per_page=1000`, { 
+                        headers: { ...h, "aid": targetAid, "x-mes-subsystem": "journalw" } 
+                    });
+                    
                     if (attRes.ok) {
                         const att = await attRes.json();
                         if (Array.isArray(att)) {
-                            classCache.absentIds = att.filter(i => i.date === today).map(i => i.student_profile_id);
+                            // Приводим ID к строке, чтобы избежать несовпадения типов number vs string
+                            classCache.absentIds = att
+                                .filter(i => isToday(i.date))
+                                .map(i => String(i.student_profile_id));
                         }
                     }
-                } catch (e) {}
+                } catch (e) {
+                    console.log('[МЭШ][journalTools] Статус посещаемости:', e?.message || e);
+                }
             }
             classCache.isLoaded = true;
         } catch (e) { 
-            logCL('Ошибка списков:', e); 
+            logCL('Ошибка списков:', e?.message || e); 
             classCache.isLoaded = true;
         } finally { 
             classCache.isLoading = false; 
@@ -282,24 +322,41 @@ window.initJournalTools = function () {
         function openListsModal() {
             if (!classCache.isLoaded) return alert('Списки загружаются, подождите пару секунд...');
             const all = classCache.profiles.map(p => p.name), absIds = classCache.absentIds || [];
-            const pres = classCache.profiles.filter(p => !absIds.includes(p.id)).map(p => p.name), abs = classCache.profiles.filter(p => absIds.includes(p.id)).map(p => p.name), hasAbs = abs.length > 0;
-            const cCol = (t, l, c, id) => `<div style="flex:1;display:flex;flex-direction:column;gap:8px"><div style="color:${c};font-weight:700;font-size:13px">${t}</div><textarea readonly style="width:100%;height:260px;font-family:monospace;font-size:12px;border:1px solid #ccc;border-radius:8px;padding:8px;resize:none;background:#fafafa">${l.join('\n')}</textarea><button id="${id}" style="width:100%;background:#eaeaea;border:1px solid #ccc;border-radius:6px;padding:6px;font-weight:700;cursor:pointer;font-size:12px;transition:.2s">📋 Скопировать</button></div>`;
+            const pres = classCache.profiles.filter(p => !absIds.includes(String(p.id))).map(p => p.name);
+            const abs = classCache.profiles.filter(p => absIds.includes(String(p.id))).map(p => p.name), hasAbs = abs.length > 0;
+
+            const cCol = (t, l, c, id) => `<div style="flex:1;display:flex;flex-direction:column;gap:8px"><div style="color:${c};font-weight:700;font-size:13px">${t}</div><textarea readonly style="width:100%;height:260px;font-family:monospace;font-size:12px;border:1px solid #ccc;border-radius:8px;padding:8px;resize:none;background:#fafafa;box-sizing:border-box">${l.join('\n')}</textarea><button id="${id}" style="width:100%;background:#eaeaea;color:#333;border:1px solid #ccc;border-radius:6px;padding:6px;font-weight:700;cursor:pointer;font-size:12px;transition:.2s">📋 Скопировать</button></div>`;
             
             const { ov } = createModal(hasAbs ? '920px' : '360px', `
                 <div class="mshhlpr-modal-header"><span>👥 Списки класса</span><button class="mshhlpr-modal-close">×</button></div>
                 <div class="mshhlpr-modal-body" style="display:flex;gap:15px;padding:20px">${cCol(`Все ученики (${all.length})`,all,'#2196f3','msh-c-all')}${hasAbs ? cCol(`Присутствуют (${pres.length})`,pres,'#4caf50','msh-c-pres') + cCol(`Отсутствуют (${abs.length})`,abs,'#f44336','msh-c-abs') : ''}</div>
             `);
             
-            const bind = (s, txt) => { const b = ov.querySelector(s); if(b) b.onclick = () => { navigator.clipboard.writeText(txt); b.innerText = '✅ Скопировано!'; b.style.background = '#4caf50'; b.style.color = '#fff'; setTimeout(() => { b.innerText = '📋 Скопировать'; b.style.background = ''; b.style.color = ''; }, 1200); }; };
-            bind('#msh-c-all', all.join('\n')); if(hasAbs){ bind('#msh-c-pres', pres.join('\n')); bind('#msh-c-abs', abs.join('\n')); }
+            const bind = (s, txt) => { 
+                const b = ov.querySelector(s); 
+                if (b) b.onclick = () => { 
+                    navigator.clipboard.writeText(txt); 
+                    b.textContent = '✅ Скопировано!'; b.style.background = '#4caf50'; b.style.color = '#fff'; 
+                    setTimeout(() => { b.textContent = '📋 Скопировать'; b.style.background = '#eaeaea'; b.style.color = '#333'; }, 1200); 
+                }; 
+            };
+            bind('#msh-c-all', all.join('\n')); 
+            if (hasAbs) { bind('#msh-c-pres', pres.join('\n')); bind('#msh-c-abs', abs.join('\n')); }
         }
 
         function russianRoulette() {
             if (!classCache.isLoaded) return alert('Списки загружаются...');
             const KEY = `mesh_roulette_${classCache.groupId}`, past = JSON.parse(sessionStorage.getItem(KEY) || '[]');
-            const recent = past.filter(w => Date.now() - w.time < 2400000).map(w => w.id), absIds = classCache.absentIds || [];
+            const recent = past.filter(w => Date.now() - w.time < 2400000).map(w => String(w.id));
+            const absIds = classCache.absentIds || [];
+            
             rouletteState = { participants: [], excluded: [], currentRotation: 0, isSpinning: false };
-            classCache.profiles.forEach(p => (absIds.includes(p.id) || recent.includes(p.id) ? rouletteState.excluded : rouletteState.participants).push(p));
+            
+            // Надежное исключение отсутствующих и недавно выбранных учеников
+            classCache.profiles.forEach(p => {
+                const strId = String(p.id);
+                (absIds.includes(strId) || recent.includes(strId) ? rouletteState.excluded : rouletteState.participants).push(p);
+            });
             
             const { ov } = createModal('90vw', `
                 <div style="display:flex;flex-direction:row;background:#2c3e50;color:#fff;overflow:hidden;height:85vh;max-height:85vh;">
@@ -343,7 +400,7 @@ window.initJournalTools = function () {
                 canvas.style.transform = `rotate(${rouletteState.currentRotation}deg)`;
                 setTimeout(() => {
                     winnerTxt.innerHTML = `🎉 ${win.name} 🎉`; winnerTxt.style.color = '#f1c40f';
-                    if (!String(win.id).startsWith('c_')) { const p = JSON.parse(sessionStorage.getItem(KEY)||'[]'); p.push({id:win.id, time:Date.now()}); sessionStorage.setItem(KEY, JSON.stringify(p)); }
+                    if (!String(win.id).startsWith('c_')) { const p = JSON.parse(sessionStorage.getItem(KEY)||'[]'); p.push({id: String(win.id), time:Date.now()}); sessionStorage.setItem(KEY, JSON.stringify(p)); }
                     rouletteState.excluded.push(rouletteState.participants.splice(wIdx,1)[0]);
                     rouletteState.isSpinning = false; pending = true; upLists();
                     spinBtn.style.opacity = '1'; spinBtn.style.cursor = 'pointer'; spinBtn.innerText = rouletteState.participants.length ? 'Крутить дальше' : ''; spinBtn.style.display = rouletteState.participants.length ? 'inline-block' : 'none';
@@ -389,28 +446,104 @@ window.initJournalTools = function () {
         }
     }
 
-    // --- 4. ВАЛИДАТОР ---
+    // --- 4. ОПРЕДЕЛЕНИЕ КОЛИЧЕСТВА УРОКОВ В НЕДЕЛЮ ---
+    function detectWeeklyLessons() {
+        const dates = [];
+        document.querySelectorAll('th:has(div[data-test-component*="scheduleLessonCell"])').forEach(th => {
+            const d = parseInt(th.querySelector('.BR21L6DXj8Qc_95TamW2, .E8taxZlPjqlq_tc1djmu:last-child')?.textContent, 10);
+            if (!isNaN(d)) {
+                const count = parseInt(th.getAttribute('colspan'), 10) || 1;
+                for (let k = 0; k < count; k++) dates.push(d);
+            }
+        });
+        if (!dates.length) return 1;
+        let months = 1;
+        for (let i = 1; i < dates.length; i++) if (dates[i] < dates[i - 1]) months++;
+        return Math.max(1, Math.round((dates.length / months) / 4));
+    }
+
+    // --- 4.1. ВАЛИДАТОР ОЦЕНОК ---
     async function marksValidator(container, groupId) {
-        if (!valCfg) {
-            if (valCfgLoading) return; valCfgLoading = true;
-            valCfg = await new Promise(r => chrome.storage.local.get('msh_val_cfg', d => r(d.msh_val_cfg || { isActive: false, minMarks: 3 })));
-            valCfgLoading = false;
+        const weeklyLessons = detectWeeklyLessons(), recommendedMin = weeklyLessons === 1 ? 3 : 5;
+        const isNewGroup = (valCache.grp !== groupId);
+        if (isNewGroup) { valCache.grp = groupId; valState.mode = null; valState.sig = ""; cellMarksCache = {}; }
+
+        // Чтение настроек: память -> хранилище -> авторекомендация
+        valCache.classMinMarks = valCache.classMinMarks || {};
+        if (valCache.classMinMarks[groupId] === undefined) {
+            const s = await new Promise(r => chrome.storage.local.get(['activeTeacher', 'profiles', 'msh_val_cfg'], r));
+            const t = s.activeTeacher || 'default';
+            valCache.classMinMarks[groupId] = s.profiles?.[t]?.classMinMarks?.[groupId] ?? recommendedMin;
+            if (!valCfg) valCfg = s.msh_val_cfg || { isActive: false };
         }
 
-        if (valCache.grp !== groupId) { valCache = { grp: groupId }; valState.mode = null; valState.sig = ""; cellMarksCache = {}; }
-
+        const currentMin = valCfg.minMarks = valCache.classMinMarks[groupId];
         const rows = document.querySelectorAll('.f0eMcueVzidF1N9SAffu');
         const activeBtn = Array.from(document.querySelectorAll('button[data-test-component^="JournalControlPanelView-journal"]')).find(b => b.classList.contains('C0qHlb4C7fAcYrnlODD0'));
         const cMode = activeBtn ? activeBtn.getAttribute('data-test-component') : 'JournalControlPanelView-journal';
         const isFinals = cMode === 'JournalControlPanelView-journalResults';
 
-        if (!document.getElementById('mesh-validator-ui')) {
-            container.insertAdjacentHTML('beforeend', `<div id="mesh-validator-ui" class="mesh-unified-card" style="margin-top:10px;border-top:1px solid #ccc;padding-top:10px"><div id="msh-val-head" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-weight:700;color:#333;font-size:13px"><div style="display:flex;flex-direction:column">Проверка оценок</div><div id="msh-val-tog" style="width:34px;height:18px;background:${valCfg.isActive?'#4caf50':'#ccc'};border-radius:10px;position:relative;transition:.3s"><div style="width:14px;height:14px;background:#fff;border-radius:50%;position:absolute;top:2px;left:${valCfg.isActive?'18px':'2px'};transition:.3s"></div></div></div><div id="msh-val-body" style="display:${valCfg.isActive?'block':'none'};margin-top:10px;font-size:12px;color:#444"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">Мин. для аттестации: <input type="number" id="msh-val-min" value="${valCfg.minMarks}" min="0" max="10" style="width:40px;padding:2px 4px;border:1px solid #ccc;border-radius:4px"></div></div></div>`);
-            const head = document.getElementById('msh-val-head'), body = document.getElementById('msh-val-body'), tog = document.getElementById('msh-val-tog').firstElementChild, togBg = document.getElementById('msh-val-tog');
-            const applyValUpdate = () => { chrome.storage.local.set({ msh_val_cfg: valCfg }); valState.sig = ""; if (valCfg.isActive) marksValidator(container, groupId); else clearValidation(); };
+        const getHint = v => v !== recommendedMin ? `С учётом количества уроков в неделю (${weeklyLessons}), минимальное количество оценок для аттестации ${recommendedMin}.` : '';
+        const updateHint = v => {
+            const box = document.getElementById('msh-val-hint');
+            if (box) { box.textContent = getHint(v); box.style.display = box.textContent ? 'block' : 'none'; }
+        };
 
-            head.onclick = e => { if (['INPUT','BUTTON','LABEL','SPAN'].includes(e.target.tagName)) return; valCfg.isActive = !valCfg.isActive; togBg.style.background = valCfg.isActive?'#4caf50':'#ccc'; tog.style.left = valCfg.isActive?'18px':'2px'; body.style.display = valCfg.isActive?'block':'none'; applyValUpdate(); };
-            document.getElementById('msh-val-min').onchange = e => { valCfg.minMarks = parseInt(e.target.value) || 3; applyValUpdate(); };
+        if (!document.getElementById('mesh-validator-ui')) {
+            container.insertAdjacentHTML('beforeend', `
+                <div id="mesh-validator-ui" class="mesh-unified-card" style="margin-top:10px;border-top:1px solid #ccc;padding-top:10px">
+                    <div id="msh-val-head" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-weight:700;color:#333;font-size:13px">
+                        <div>Проверка оценок</div>
+                        <div id="msh-val-tog" style="width:34px;height:18px;background:${valCfg.isActive ? '#4caf50' : '#ccc'};border-radius:10px;position:relative;transition:.3s">
+                            <div style="width:14px;height:14px;background:#fff;border-radius:50%;position:absolute;top:2px;left:${valCfg.isActive ? '18px' : '2px'};transition:.3s"></div>
+                        </div>
+                    </div>
+                    <div id="msh-val-body" style="display:${valCfg.isActive ? 'block' : 'none'};margin-top:10px;font-size:12px;color:#444">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                            <span>Мин. для аттестации:</span>
+                            <input type="number" id="msh-val-min" value="${currentMin}" min="0" max="20" style="width:56px;padding:2px 6px;text-align:center;box-sizing:border-box;border:1px solid #ccc;border-radius:6px;font-weight:600;outline:none">
+                        </div>
+                        <div id="msh-val-hint" style="display:${getHint(currentMin) ? 'block' : 'none'};background:#fff3cd;color:#856404;border:1px solid #ffeeba;border-radius:6px;padding:6px 8px;font-size:11px;line-height:1.35;margin-top:6px;">${getHint(currentMin)}</div>
+                    </div>
+                </div>
+            `);
+
+            const minInp = document.getElementById('msh-val-min');
+            const saveAndApply = async (newVal) => {
+                valCache.classMinMarks[groupId] = valCfg.minMarks = newVal;
+                updateHint(newVal);
+                const s = await new Promise(r => chrome.storage.local.get(['profiles', 'activeTeacher'], r));
+                const t = s.activeTeacher || 'default', p = s.profiles || {};
+                if (!p[t]) p[t] = {};
+                (p[t].classMinMarks = p[t].classMinMarks || {})[groupId] = newVal;
+                chrome.storage.local.set({ profiles: p, msh_val_cfg: valCfg });
+                valState.sig = "";
+                valCfg.isActive ? marksValidator(container, groupId) : clearValidation();
+            };
+
+            document.getElementById('msh-val-head').onclick = e => { 
+                if (['INPUT','BUTTON','LABEL','SPAN'].includes(e.target.tagName)) return; 
+                valCfg.isActive = !valCfg.isActive; 
+                document.getElementById('msh-val-tog').style.background = valCfg.isActive ? '#4caf50' : '#ccc'; 
+                document.getElementById('msh-val-tog').firstElementChild.style.left = valCfg.isActive ? '18px' : '2px'; 
+                document.getElementById('msh-val-body').style.display = valCfg.isActive ? 'block' : 'none'; 
+                chrome.storage.local.set({ msh_val_cfg: valCfg });
+                valState.sig = "";
+                valCfg.isActive ? marksValidator(container, groupId) : clearValidation();
+            };
+
+            const onInputVal = e => {
+                const n = parseInt(e.target.value, 10), safe = isNaN(n) ? recommendedMin : Math.max(0, n);
+                if (e.type === 'change' && isNaN(n)) minInp.value = safe;
+                saveAndApply(safe);
+            };
+            minInp.oninput = minInp.onchange = onInputVal;
+        } else {
+            const minInp = document.getElementById('msh-val-min');
+            if (minInp && document.activeElement !== minInp && (isNewGroup || parseInt(minInp.value, 10) !== currentMin)) {
+                minInp.value = currentMin;
+            }
+            updateHint(currentMin);
         }
 
         if (cMode !== valState.mode) { clearValidation(); valState.sig = ""; valState.mode = cMode; }
@@ -465,8 +598,10 @@ window.initJournalTools = function () {
                 const w = r.querySelector('td span[title]')?.closest('div'); 
                 
                 if(w) { 
-                    w.classList.toggle('mshhlpr-bg-error', marksCount<valCfg.minMarks); 
-                    w.title = marksCount<valCfg.minMarks?`Оценок: ${marksCount}. Нужно: ${valCfg.minMarks}`:''; 
+                    // При minMarks == 0 подсветка ошибки не срабатывает никогда
+                    const isError = valCfg.minMarks > 0 && marksCount < valCfg.minMarks;
+                    w.classList.toggle('mshhlpr-bg-error', isError); 
+                    w.title = isError ? `Оценок: ${marksCount}. Нужно: ${valCfg.minMarks}` : ''; 
                 }
                 
                 const aS = Array.from(r.querySelectorAll('span')).find(s => /^\s*[2-5],\d{2}\s*$/.test(s.textContent));
@@ -500,7 +635,7 @@ window.initJournalTools = function () {
         });
     }
     
-    // --- 4.1 АВТОВЫСТАВЛЕНИЕ ОЦЕНОК ---
+    // --- 4.2 АВТОВЫСТАВЛЕНИЕ ОЦЕНОК ---
     function injectAutoFillBtn(isFinals) {
         const panelBody = document.querySelector('#mesh-validator-ui #msh-val-body');
         if(!panelBody) return;
@@ -570,7 +705,7 @@ window.initJournalTools = function () {
                 });
                 if(mis) skip = true; else if(c>0) { const a=s/c; exp = a<=2.5?2:a<=3.5?3:a<=4.5?4:5; }
             } else {
-                if(nEl.closest('div')?.classList.contains('mshhlpr-bg-error')) skip = true;
+                if(valCfg.minMarks > 0 && nEl.closest('div')?.classList.contains('mshhlpr-bg-error')) skip = true;
                 
                 let aV = parseFloat(Array.from(r.querySelectorAll('span')).find(sp => /^\s*[2-5],\d{2}\s*$/.test(sp.textContent))?.textContent.replace(',','.'));
                 const ms = getWeightedMarks(r);
@@ -615,55 +750,75 @@ window.initJournalTools = function () {
         let activeRow = null, activeBox = null;
         if (!window.__zenBind) {
             document.addEventListener('mouseover', e => {
-                if (!getGroupId()) return; const row = e.target.closest('tr.f0eMcueVzidF1N9SAffu');
-                if (row === activeRow) return; activeRow = row;
-                activeBox?.classList.remove('mesh-zh'); activeBox = row?.querySelector('td span[title]')?.parentElement || null; activeBox?.classList.add('mesh-zh');
+                if (!getGroupId()) return; 
+                const row = e.target.closest('tr.f0eMcueVzidF1N9SAffu');
+                if (row === activeRow) return; 
+                activeRow = row;
+                activeBox?.classList.remove('mesh-zh'); 
+                activeBox = row?.querySelector('td span[title]')?.parentElement || null; 
+                activeBox?.classList.add('mesh-zh');
             });
             window.__zenBind = true;
         }
 
-        // Вычисляем сегодняшнюю дату (или берем тестовую)
+        // Вычисляем сегодняшнюю дату
         const d = new Date();
         const today = TEST_BIRTHDAY_DATE || `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
-        // Находим всех именинников в закэшированном классе
         const birthdayKids = classCache.profiles.filter(p => p.birthDate && p.birthDate.startsWith(today));
 
         document.querySelectorAll('.f0eMcueVzidF1N9SAffu').forEach(r => {
             
-            // --- ЛОГИКА ИМЕНИННИКОВ ---
+            // --- ЛОГИКА ИМЕНИННИКОВ (БЕЗ УНИЧТОЖЕНИЯ TEXTNODE) ---
             const nameEl = r.querySelector('td span[title]');
             if (nameEl && birthdayKids.length > 0) {
-                const currentText = nameEl.textContent.trim().replace(' 🎂', '');
+                // Извлекаем только оригинальный текст имени (первый текстовый узел)
+                const currentText = (nameEl.childNodes[0]?.nodeValue || nameEl.textContent).trim();
                 const kid = birthdayKids.find(k => currentText === k.shortName || currentText.startsWith(k.shortName));
                 
-                if (kid && !nameEl.textContent.includes('🎂')) {
-                    nameEl.textContent = `${currentText} 🎂`;
-                    nameEl.title = `🎉 Сегодня день рождения! (${kid.birthDate})`;
-                    nameEl.style.cssText = 'font-weight: 700; color: #d35400;'; 
+                if (kid) {
+                    if (!nameEl.querySelector('.msh-bday-tag')) {
+                        const bdayTag = document.createElement('span');
+                        bdayTag.className = 'msh-bday-tag';
+                        bdayTag.textContent = ' 🎂';
+                        bdayTag.style.pointerEvents = 'none';
+                        nameEl.appendChild(bdayTag);
+                        nameEl.title = `🎉 Сегодня день рождения! (${kid.birthDate})`;
+                        nameEl.style.fontWeight = '700';
+                        nameEl.style.color = '#d35400';
+                    }
                 }
             }
 
             // --- ЛОГИКА ПОДСВЕТКИ ОЦЕНОК ---
             const aS = Array.from(r.querySelectorAll('span')).find(s => /^\s*[2-5],\d{2}\s*$/.test(s.textContent));
             if (aS) {
-                const aV = parseFloat(aS.textContent.replace(',','.'));
+                const aV = parseFloat(aS.textContent.replace(',', '.'));
                 const ws = getWeightedMarks(r).reduce((acc, m) => acc + m.weight, 0); 
                 aS.classList.toggle('mshhlpr-rainbow-bg', !isNaN(aV) && aV <= 2.50);
                 let tt = `Средний балл: ${aV}`;
                 if (!isNaN(aV) && ws > 0) {
-                    const t = aV<2.6?2.6:aV<3.6?3.6:aV<4.6?4.6:0;
-                    if (t) { const n = Math.max(0, Math.ceil((t*ws - aV*ws) / (5-t))); tt += `\n👉 До оценки ${t<3?3:t<4?4:5} нужно пятёрок (с весом 1): ${n>50?'>50':n}`; }
+                    const t = aV < 2.6 ? 2.6 : aV < 3.6 ? 3.6 : aV < 4.6 ? 4.6 : 0;
+                    if (t) { 
+                        const n = Math.max(0, Math.ceil((t * ws - aV * ws) / (5 - t))); 
+                        tt += `\n👉 До оценки ${t < 3 ? 3 : t < 4 ? 4 : 5} нужно пятёрок (с весом 1): ${n > 50 ? '>50' : n}`; 
+                    }
                 }
                 aS.title = tt;
             }
         });
     }
 
-    // --- 6. КАРТОЧКА УЧЕНИКА ---
+    // --- 6. КАРТОЧКА УЧЕНИКА (БЕЗОПАСНАЯ ВЕРСИЯ ДЛЯ REACT) ---
     if (!window.__tooltipKillerInited) {
         new MutationObserver((muts) => {
             muts.forEach(m => m.addedNodes.forEach(n => {
-                if (n.nodeType === 1 && n.classList.contains('MuiPopper-root') && n.getAttribute('role') === 'tooltip' && n.textContent.includes('Информация об учащемся')) { n.style.display = 'none'; n.remove(); }
+                if (n.nodeType === 1 && n.classList.contains('MuiPopper-root') && n.getAttribute('role') === 'tooltip' && n.textContent.includes('Информация об учащемся')) {
+                    // ВАЖНО: Ни в коем случае не вызываем n.remove()!
+                    // Только глушим отображение и перехват курсора, сохраняя ноду для React:
+                    n.style.setProperty('display', 'none', 'important');
+                    n.style.setProperty('pointer-events', 'none', 'important');
+                    n.style.setProperty('opacity', '0', 'important');
+                }
             }));
         }).observe(document.body, { childList: true, subtree: true });
         window.__tooltipKillerInited = true;
@@ -673,8 +828,12 @@ window.initJournalTools = function () {
         document.addEventListener('click', async (e) => {
             const nameEl = e.target.closest('.f0eMcueVzidF1N9SAffu td:first-child span[title]');
             if (!nameEl) return;
-            e.preventDefault(); e.stopPropagation(); 
-            openCustomStudentCard(nameEl.textContent.trim().replace(' 🎂', ''));
+            e.preventDefault(); 
+            e.stopPropagation(); 
+            
+            // Чистим текст от значка торта, не ломая оригинальный DOM
+            const rawText = nameEl.childNodes[0]?.nodeValue || nameEl.textContent;
+            openCustomStudentCard(rawText.trim());
         }, true);
         window.__studentCardBind = true;
     }

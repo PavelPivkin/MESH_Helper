@@ -105,6 +105,18 @@ window.initMathSymbols = function () {
             animation: mshhlprModalShow 0.15s ease-out !important;
         `;
 
+        // Функция аккуратного закрытия окна и очистки слушателя
+        const closePopover = () => {
+            popover.remove();
+            document.removeEventListener('pointerdown', onOutsideClick);
+        };
+
+        const onOutsideClick = (e) => {
+            if (!popover.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+                closePopover();
+            }
+        };
+
         const renderContent = () => {
             const tabsHtml = SYMBOL_CATEGORIES.map((cat, idx) => `
                 <button class="msh-tab-b" data-idx="${idx}" style="
@@ -152,7 +164,7 @@ window.initMathSymbols = function () {
                 </div>
             `;
 
-            popover.querySelector('#msh-pop-close').onclick = () => popover.remove();
+            popover.querySelector('#msh-pop-close').onclick = closePopover;
 
             // Вкладки
             popover.querySelectorAll('.msh-tab-b').forEach(b => {
@@ -165,21 +177,13 @@ window.initMathSymbols = function () {
                 };
             });
 
-            // Клик по символу (моментальная вставка)
+            // Клик по символу (вставка и мгновенное закрытие окна)
             popover.querySelectorAll('.msh-sym-b').forEach(b => {
                 b.onclick = (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    const sym = b.dataset.sym;
-                    appendText(textarea, sym);
-                    
-                    // Микро-анимация нажатия
-                    b.style.transform = 'scale(0.85)';
-                    b.style.backgroundColor = '#dcfce7';
-                    setTimeout(() => {
-                        b.style.transform = 'none';
-                        b.style.backgroundColor = '#ffffff';
-                    }, 120);
+                    appendText(textarea, b.dataset.sym);
+                    closePopover(); // Закрываем окно сразу после вставки
                 };
             });
         };
@@ -188,13 +192,6 @@ window.initMathSymbols = function () {
         document.body.appendChild(popover);
         positionPopover(popover, btn);
 
-        // Закрытие при клике мимо поповера
-        const onOutsideClick = (e) => {
-            if (!popover.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
-                popover.remove();
-                document.removeEventListener('pointerdown', onOutsideClick);
-            }
-        };
         setTimeout(() => document.addEventListener('pointerdown', onOutsideClick), 50);
     }
 
