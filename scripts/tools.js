@@ -146,12 +146,154 @@
     })();
 
     // =========================================================================
-    // 4. ОБ АВТОРЕ (АВАТАРКА И МОДАЛЬНОЕ ОКНО)
+    // 4. ОБ АВТОРЕ (АВАТАРКА, МОДАЛЬНОЕ ОКНО И ОБЛАЧКО ОБНОВЛЕНИЯ)
     // =========================================================================
-    /**
-     * Заменяет аватарку пользователя и выводит модалку об авторе.
-     */
     (() => {
+        // ТЕСТОВЫЙ РЕЖИМ: true - показывать всегда для проверки, false - только при реальном обновлении
+        const DEBUG_FORCE_CHANGELOG = false;
+
+        const isNewerVersion = (cur, prev) => {
+            if (!prev) return false;
+            const c = cur.split('.').map(Number), p = prev.split('.').map(Number);
+            for (let i = 0; i < Math.max(c.length, p.length); i++) {
+                if ((c[i] || 0) > (p[i] || 0)) return true;
+                if ((c[i] || 0) < (p[i] || 0)) return false;
+            }
+            return false;
+        };
+
+        const injectChangelogStyles = () => {
+            if (document.getElementById('mshhlpr-chlog-css')) return;
+            const s = document.createElement('style');
+            s.id = 'mshhlpr-chlog-css';
+            s.textContent = `
+                @keyframes mshRipple {
+                    0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7), 0 8px 24px rgba(0,0,0,0.15); border-color: #4caf50; }
+                    50% { box-shadow: 0 0 0 7px rgba(76, 175, 80, 0), 0 8px 24px rgba(0,0,0,0.22); border-color: #81c784; }
+                    100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0), 0 8px 24px rgba(0,0,0,0.15); border-color: #c8e6c9; }
+                }
+                @keyframes mshPopIn {
+                    from { opacity: 0; transform: scale(0.85) translateX(10px); }
+                    to { opacity: 1; transform: scale(1) translateX(0); }
+                }
+                .msh-chlog-bubble {
+                    position: fixed !important; z-index: 999999 !important; width: 280px !important;
+                    background: #ffffff !important; border: 2px solid #4caf50 !important; border-radius: 12px !important;
+                    padding: 12px 14px !important; box-shadow: 0 8px 24px rgba(0,0,0,0.15) !important;
+                    font-family: 'Segoe UI', Roboto, sans-serif !important; color: #333 !important;
+                    animation: mshPopIn 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28), mshRipple 1.2s ease-in-out 2.5 !important;
+                    box-sizing: border-box !important; line-height: 1.35 !important;
+                }
+                .msh-chlog-bubble::after {
+                    content: '' !important; position: absolute !important; right: -9px !important; top: 16px !important;
+                    width: 0 !important; height: 0 !important; border-top: 7px solid transparent !important;
+                    border-bottom: 7px solid transparent !important; border-left: 8px solid #ffffff !important;
+                }
+                .msh-chlog-bubble::before {
+                    content: '' !important; position: absolute !important; right: -11px !important; top: 15px !important;
+                    width: 0 !important; height: 0 !important; border-top: 8px solid transparent !important;
+                    border-bottom: 8px solid transparent !important; border-left: 9px solid #4caf50 !important;
+                }
+            `;
+            document.head.appendChild(s);
+        };
+
+        const showChangelogBubble = async (avatarEl, textContent, curVer) => {
+            document.getElementById('msh-chlog-popup')?.remove();
+            injectChangelogStyles();
+
+            const rect = avatarEl.getBoundingClientRect();
+            const bubble = document.createElement('div');
+            bubble.id = 'msh-chlog-popup';
+            bubble.className = 'msh-chlog-bubble';
+
+            // Позиционирование слева от аватарки с динамической высотой
+            const rightPos = Math.max(10, window.innerWidth - rect.left + 12);
+            bubble.style.right = `${rightPos}px`;
+            bubble.style.top = `${Math.max(10, rect.top)}px`;
+
+            const formattedHtml = textContent
+                .split('\n')
+                .filter(l => l.trim())
+                .map(l => `<div style="margin-bottom: 4px;">${l.trim()}</div>`)
+                .join('');
+
+            bubble.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; border-bottom: 1px solid #edf2f7; padding-bottom: 6px;">
+                    <span style="font-weight: 700; font-size: 13px; color: #2e7d32;">👋 МЭШ Помогатор обновился!</span>
+                    <button id="msh-chlog-close" style="background: none; border: none; font-size: 16px; cursor: pointer; color: #999; line-height: 1; padding: 0 2px;">&times;</button>
+                </div>
+                <div style="font-size: 12px; color: #444; max-height: 250px; overflow-y: auto; word-break: break-word;">
+                    ${formattedHtml}
+                </div>
+            `;
+
+            document.body.appendChild(bubble);
+
+            const markAsSeen = () => chrome.storage.local.set({ lastNotifiedVersion: curVer });
+            const close = () => {
+                document.removeEventListener('click', onOutsideClick);
+                bubble.style.transition = 'opacity 0.2s, transform 0.2s';
+                bubble.style.opacity = '0';
+                bubble.style.transform = 'scale(0.9) translateX(10px)';
+                setTimeout(() => bubble.remove(), 200);
+                markAsSeen();
+            };
+
+            bubble.querySelector('#msh-chlog-close').onclick = (e) => { e.stopPropagation(); close(); };
+
+            // Закрытие при клике вне облачка
+            const onOutsideClick = (e) => {
+                if (!bubble.contains(e.target) && e.target !== avatarEl && !avatarEl.contains(e.target)) close();
+            };
+            setTimeout(() => document.addEventListener('click', onOutsideClick), 150);
+
+            // Таймер на 10 секунд с паузой на hover
+            let timeLeft = 10000, timerId = null, startTime = Date.now();
+            const startTimer = (ms) => {
+                clearTimeout(timerId);
+                startTime = Date.now();
+                timeLeft = ms;
+                timerId = setTimeout(close, ms);
+            };
+
+            bubble.onmouseenter = () => {
+                clearTimeout(timerId);
+                timeLeft -= (Date.now() - startTime);
+            };
+            bubble.onmouseleave = () => startTimer(Math.max(timeLeft, 3000));
+            startTimer(timeLeft);
+        };
+
+        const checkUpdateNotification = async (avatarEl) => {
+            const curVer = chrome.runtime.getManifest().version;
+            const { lastNotifiedVersion: lastVer } = await chrome.storage.local.get(['lastNotifiedVersion']);
+
+            // Первичная установка: сохраняем версию молча
+            if (!lastVer && !DEBUG_FORCE_CHANGELOG) {
+                chrome.storage.local.set({ lastNotifiedVersion: curVer });
+                return;
+            }
+
+            if (DEBUG_FORCE_CHANGELOG || isNewerVersion(curVer, lastVer)) {
+                try {
+                    const res = await fetch(chrome.runtime.getURL('changelog.txt'));
+                    if (!res.ok) return;
+                    const txt = await res.text();
+                    const match = txt.match(new RegExp(`\\[${curVer}\\]([\\s\\S]*?)(?=\\n\\[|$)`));
+                    const changelogContent = match ? match[1].trim() : '';
+
+                    if (changelogContent) {
+                        setTimeout(() => showChangelogBubble(avatarEl, changelogContent, curVer), 2000);
+                    } else if (!DEBUG_FORCE_CHANGELOG) {
+                        chrome.storage.local.set({ lastNotifiedVersion: curVer });
+                    }
+                } catch (e) {
+                    console.log('[МЭШ][Changelog] Ошибка чтения файла:', e);
+                }
+            }
+        };
+
         window.initAboutMe = () => {
             console.log('[МЭШ][tools.js][AboutMe] Инициализирован.');
             let sch = false;
@@ -165,6 +307,7 @@
                         const img = c.querySelector('.msh-author-av');
                         img.onmouseover = () => img.style.transform = 'scale(1.4) translateY(-2px)';
                         img.onmouseout = () => img.style.transform = 'none';
+
                         img.addEventListener('click', e => {
                             e.preventDefault(); e.stopImmediatePropagation();
                             document.getElementById('msh-abt-modal')?.remove();
@@ -174,6 +317,9 @@
                             document.body.appendChild(ov);
                             const cls = () => ov.remove(); ov.querySelector('.mshhlpr-modal-close').onclick = cls; ov.onclick = ev => ev.target === ov && cls();
                         }, true);
+
+                        // Запускаем проверку обновлений
+                        checkUpdateNotification(img);
                     }
                     sch = false;
                 });

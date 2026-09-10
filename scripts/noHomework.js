@@ -145,7 +145,7 @@ window.initNoHomework = function () {
                 <div class="mshhlpr-modal-body" style="flex-direction: column; padding: 20px; gap: 12px; text-align: left;">
                     <div style="font-size: 34px; text-align: center;">🚫</div>
                     <div style="font-size: 13.5px; font-weight: 700; color: #2c3e50; text-align: center;">
-                        Выставить «Нет ДЗ» каждому уроку без домашнего задания?
+                        Выставить «Нет ДЗ» каждому прошедшему уроку без домашнего задания?
                     </div>
                 </div>
                 <div class="mshhlpr-modal-footer" style="justify-content: flex-end; gap: 10px;">

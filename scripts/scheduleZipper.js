@@ -129,10 +129,13 @@ window.initScheduleZipper = function () {
 
     chrome.storage.local.get(['activeTeacher', 'profiles', 'globalBellSchedule'], (res) => {
         syncState(res);
-        if (location.href.includes('schedule')) {
+        const isSchedule = location.pathname.includes('/schedule') && !location.pathname.includes('/lesson');
+        if (isSchedule) {
             injectStyles();
             injectToggleUI();
             runPipeline();
+        } else {
+            cleanupSchedule();
         }
         startObserver();
     });
@@ -147,37 +150,45 @@ window.initScheduleZipper = function () {
         }
     });
 
+    function cleanupSchedule() {
+        document.body.classList.remove('mshhlpr-zipping-active');
+        document.getElementById('mshhlpr-sch-css')?.remove();
+        document.getElementById('mshhlpr-schedule-controls')?.remove();
+        document.getElementById('mshhlpr-global-stat-tooltip')?.remove();
+        document.getElementById('mesh-bell-modal')?.remove();
+    }
+
     function startObserver() {
         if (mainObserver) mainObserver.disconnect();
 
+        const isScheduleView = () => location.pathname.includes('/schedule') && !location.pathname.includes('/lesson');
+
         const executeModifications = () => {
             if (isTogglingWeekend) return;
-            isProcessingDom = true; 
+            isProcessingDom = true;
 
-            const isSchedule = location.pathname.includes('/schedule') && !location.pathname.includes('/lesson');
-            if (isSchedule) {
+            if (isScheduleView()) {
                 injectStyles();
                 injectToggleUI();
                 runPipeline();
             } else {
-                document.getElementById('mshhlpr-schedule-controls')?.remove();
+                cleanupSchedule();
             }
 
             requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    isProcessingDom = false;
-                });
+                requestAnimationFrame(() => { isProcessingDom = false; });
             });
         };
 
         const observerHandler = () => {
             if (isProcessingDom || isTogglingWeekend) return;
 
-            // МГНОВЕННОЕ внедрение: если кнопок еще нет в шапке, не ждем таймер задержки!
-            const controlsMissing = location.pathname.includes('/schedule') && 
-                                   !location.pathname.includes('/lesson') && 
-                                   !document.getElementById('mshhlpr-schedule-controls');
-            if (controlsMissing) {
+            const isSch = isScheduleView();
+            const controlsMissing = isSch && !document.getElementById('mshhlpr-schedule-controls');
+            const cleanupNeeded = !isSch && (document.body.classList.contains('mshhlpr-zipping-active') || document.getElementById('mshhlpr-sch-css'));
+
+            // Мгновенная реакция без задержек таймера при смене роута
+            if (controlsMissing || cleanupNeeded) {
                 executeModifications();
                 return;
             }
@@ -188,7 +199,6 @@ window.initScheduleZipper = function () {
 
         mainObserver = new MutationObserver(observerHandler);
         mainObserver.observe(document.body, { childList: true, subtree: true });
-        
         executeModifications();
     }
 
@@ -680,24 +690,29 @@ window.initScheduleZipper = function () {
     }
 
     function initGlobalTooltip() {
-        if (window.__mshStatTipInited) return;
-        window.__mshStatTipInited = true;
-
-        let tip = document.querySelector(SELECTORS.statTooltip);
+        // 1. Самовосстановление DOM-элемента: создаем, если он был удален при уходе со страницы
+        let tip = document.getElementById('mshhlpr-global-stat-tooltip');
         if (!tip) {
             tip = document.createElement('div');
             tip.id = 'mshhlpr-global-stat-tooltip';
             document.body.appendChild(tip);
         }
 
+        // 2. Слушатели мыши вешаем строго один раз на весь жизненный цикл вкладки
+        if (window.__mshStatTipInited) return;
+        window.__mshStatTipInited = true;
+
         document.addEventListener('mouseover', e => {
             const pill = e.target.closest(SELECTORS.statPill);
+            const currentTip = document.getElementById('mshhlpr-global-stat-tooltip');
+            if (!currentTip) return;
+
             if (pill && pill.dataset.mshTip) {
-                tip.innerHTML = decodeURIComponent(pill.dataset.mshTip);
-                tip.style.display = 'block';
+                currentTip.innerHTML = decodeURIComponent(pill.dataset.mshTip);
+                currentTip.style.display = 'block';
 
                 const rect = pill.getBoundingClientRect();
-                const tipRect = tip.getBoundingClientRect();
+                const tipRect = currentTip.getBoundingClientRect();
 
                 let left = rect.left + (rect.width / 2) - (tipRect.width / 2);
                 let top = rect.bottom + 6;
@@ -707,18 +722,21 @@ window.initScheduleZipper = function () {
                     left = window.innerWidth - tipRect.width - 10;
                 }
 
-                tip.style.left = `${left}px`;
-                tip.style.top = `${top}px`;
-                tip.style.opacity = '1';
+                currentTip.style.left = `${left}px`;
+                currentTip.style.top = `${top}px`;
+                currentTip.style.opacity = '1';
             } else {
-                tip.style.opacity = '0';
-                tip.style.display = 'none';
+                currentTip.style.opacity = '0';
+                currentTip.style.display = 'none';
             }
         });
 
         window.addEventListener('scroll', () => {
-            tip.style.opacity = '0';
-            tip.style.display = 'none';
+            const currentTip = document.getElementById('mshhlpr-global-stat-tooltip');
+            if (currentTip) {
+                currentTip.style.opacity = '0';
+                currentTip.style.display = 'none';
+            }
         }, { passive: true });
     }
 
@@ -848,265 +866,133 @@ window.initScheduleZipper = function () {
         css.id = 'mshhlpr-sch-css';
         css.textContent = `
             aside.rUlQ9EWlNWIMbbZh.Et14spNe2tEZiyY3 {
-                height: auto !important;
-                min-height: 0 !important;
-                padding: 2px 10px !important;
-                display: flex !important;
-                align-items: center !important;
-                gap: 4px !important;
+                height: auto !important; min-height: 0 !important;
+                padding: 2px 10px !important; display: flex !important;
+                align-items: center !important; gap: 4px !important;
             }
             .wwzPs6NXE0deYHCZ {
-                display: flex !important;
-                justify-content: space-between !important;
-                align-items: center !important;
-                width: 100% !important;
+                display: flex !important; justify-content: space-between !important;
+                align-items: center !important; width: 100% !important;
             }
             body.mshhlpr-zipping-active .Yqc7KGCueoAVFI1x,
             body.mshhlpr-zipping-active .cdISCvPwy4Q2oujR > span:nth-child(2) {
-                display: -webkit-box !important;
-                -webkit-line-clamp: 1 !important;
-                -webkit-box-orient: vertical !important;
-                overflow: hidden !important;
-                line-height: 1.2 !important;
+                display: -webkit-box !important; -webkit-line-clamp: 1 !important;
+                -webkit-box-orient: vertical !important; overflow: hidden !important; line-height: 1.2 !important;
             }
-
-            /* --- СТИЛИЗАЦИЯ КЛАССА КАК КЛИКАБЕЛЬНОЙ ССЫЛКИ С ПОДЧЁРКИВАНИЕМ --- */
             body.mshhlpr-zipping-active .cdISCvPwy4Q2oujR > span:first-child,
             body.mshhlpr-zipping-active .As5rq3Q894A706VT {
-                cursor: pointer !important;
-                color: #2e7d32 !important;
-                text-decoration: underline !important;
-                text-underline-offset: 2px !important;
+                cursor: pointer !important; color: #2e7d32 !important;
+                text-decoration: underline !important; text-underline-offset: 2px !important;
                 transition: opacity 0.15s ease, color 0.15s ease !important;
             }
             body.mshhlpr-zipping-active .cdISCvPwy4Q2oujR > span:first-child:hover,
             body.mshhlpr-zipping-active .As5rq3Q894A706VT:hover {
-                color: #1b5e20 !important;
-                opacity: 0.8 !important;
+                color: #1b5e20 !important; opacity: 0.8 !important;
             }
-
-            body.mshhlpr-zipping-active .m0Kra9tNIDzJFtd8 {
-                height: 104px !important;
-            }
-            body.mshhlpr-zipping-active .L1Nsyp1sHwxsskJt {
-                display: none !important;
-            }
-            body.mshhlpr-zipping-active .nkAfYFPTIKgFNq2L {
-                transition: height 0.2s ease !important;
-            }
+            body.mshhlpr-zipping-active .m0Kra9tNIDzJFtd8 { height: 104px !important; }
+            body.mshhlpr-zipping-active .L1Nsyp1sHwxsskJt { display: none !important; }
+            body.mshhlpr-zipping-active .nkAfYFPTIKgFNq2L { transition: height 0.2s ease !important; }
             body.mshhlpr-zipping-active .nkAfYFPTIKgFNq2L > div[style*="position: absolute"] {
                 transition: top 0.2s ease, width 0.2s ease, left 0.2s ease !important;
             }
 
-            /* --- ГЛУШИМ ТОЛЬКО ПОДСКАЗКИ УРОКОВ, НЕ ЗАТРАГИВАЯ МЕНЮ С ИНПУТАМИ И СЛУЖЕБНЫЕ ПОПОВЕРЫ --- */
-            body.mshhlpr-zipping-active div[role="tooltip"].MuiPopper-root:not(:has(input)):not(:has([data-test-component*="iconButtonInPopover"])) {
-                opacity: 0 !important;
-                pointer-events: none !important;
-                position: absolute !important;
-                z-index: -9999 !important;
+            /* --- ИЗОЛИРОВАННОЕ СКРЫТИЕ ПОДСКАЗОК УРОКОВ (АКТИВНО ТОЛЬКО ВНУТРИ СЕТКИ РАСПИСАНИЯ) --- */
+            body.mshhlpr-zipping-active:has(.nkAfYFPTIKgFNq2L) div[role="tooltip"].MuiPopper-root:not(:has(input)):not(:has([data-test-component*="iconButtonInPopover"])) {
+                opacity: 0 !important; pointer-events: none !important;
+                position: absolute !important; z-index: -9999 !important;
             }
 
-            /* Доступность кнопок настроек и информации в шапке */
             button[data-test-component="scheduleHeaderSettingsView"],
             button[data-test-component="scheduleHeaderExportExcel"] {
-                position: relative !important;
-                z-index: 100 !important;
-                pointer-events: auto !important;
-                cursor: pointer !important;
+                position: relative !important; z-index: 100 !important;
+                pointer-events: auto !important; cursor: pointer !important;
             }
-
-            /* Показ окон с инпутами (настройки) и поповеров с крестиком (информация) */
             div.MuiPopper-root:has(input),
             div.MuiPopper-root:has([data-test-component*="iconButtonInPopover"]) {
-                opacity: 1 !important;
-                pointer-events: auto !important;
-                z-index: 999999 !important;
+                opacity: 1 !important; pointer-events: auto !important; z-index: 999999 !important;
             }
 
-            /* --- СТИЛИЗАЦИЯ ИКОНОК ДЗ И ОЦЕНОК --- */
             body.mshhlpr-zipping-active [data-test-component*="Home-badgeStatus"],
             body.mshhlpr-zipping-active [data-test-component*="Book-badgeStatus"] {
-                cursor: pointer !important;
-                transition: transform 0.15s ease, opacity 0.15s ease !important;
+                cursor: pointer !important; transition: transform 0.15s ease, opacity 0.15s ease !important;
                 border-radius: 4px !important;
             }
             body.mshhlpr-zipping-active [data-test-component*="Home-badgeStatus"]:hover,
             body.mshhlpr-zipping-active [data-test-component*="Book-badgeStatus"]:hover {
-                transform: scale(1.18) !important;
-                opacity: 0.85 !important;
+                transform: scale(1.18) !important; opacity: 0.85 !important;
             }
 
             .kDceJpxARRwfSjiN.mshhlpr-custom-ruler-active {
-                position: relative !important;
-                overflow: hidden !important;
-                transition: height 0.2s ease !important;
+                position: relative !important; overflow: hidden !important; transition: height 0.2s ease !important;
             }
-            .kDceJpxARRwfSjiN.mshhlpr-custom-ruler-active > .LO5wubRYAFsh8TAK {
-                visibility: hidden !important;
-            }
+            .kDceJpxARRwfSjiN.mshhlpr-custom-ruler-active > .LO5wubRYAFsh8TAK { visibility: hidden !important; }
             #mshhlpr-custom-ruler-container {
-                position: absolute !important;
-                top: 0 !important;
-                left: 0 !important;
-                right: 0 !important;
-                bottom: 0 !important;
-                visibility: visible !important;
+                position: absolute !important; top: 0 !important; left: 0 !important;
+                right: 0 !important; bottom: 0 !important; visibility: visible !important;
             }
             .mshhlpr-ruler-slot {
-                position: absolute !important;
-                left: 0 !important;
-                right: 0 !important;
-                display: flex !important;
-                flex-direction: column !important;
-                align-items: center !important;
-                justify-content: center !important;
-                border-bottom: 1px dashed rgba(0,0,0,0.08) !important;
+                position: absolute !important; left: 0 !important; right: 0 !important;
+                display: flex !important; flex-direction: column !important; align-items: center !important;
+                justify-content: center !important; border-bottom: 1px dashed rgba(0,0,0,0.08) !important;
                 box-sizing: border-box !important;
             }
-            .mshhlpr-ruler-num {
-                font-weight: 800 !important;
-                font-size: 14px !important;
-                color: #2e7d32 !important;
-                line-height: 1 !important;
-            }
+            .mshhlpr-ruler-num { font-weight: 800 !important; font-size: 14px !important; color: #2e7d32 !important; line-height: 1 !important; }
             .mshhlpr-ruler-time {
-                font-size: 9.5px !important;
-                color: #666 !important;
-                margin-top: 2px !important;
-                display: flex !important;
-                flex-direction: column !important;
-                align-items: center !important;
-                justify-content: center !important;
-                line-height: 1 !important;
-                text-align: center !important;
+                font-size: 9.5px !important; color: #666 !important; margin-top: 2px !important;
+                display: flex !important; flex-direction: column !important; align-items: center !important;
+                justify-content: center !important; line-height: 1 !important; text-align: center !important;
             }
             .mshhlpr-elastic-window {
-                position: absolute !important;
-                left: 2px !important;
-                right: 2px !important;
-                width: calc(100% - 4px) !important;
-                background: rgba(0, 0, 0, 0.02) !important;
-                border: 1px dashed rgba(0, 0, 0, 0.15) !important;
-                border-radius: 8px !important;
-                box-sizing: border-box !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                pointer-events: none !important;
+                position: absolute !important; left: 2px !important; right: 2px !important;
+                width: calc(100% - 4px) !important; background: rgba(0, 0, 0, 0.02) !important;
+                border: 1px dashed rgba(0, 0, 0, 0.15) !important; border-radius: 8px !important;
+                box-sizing: border-box !important; display: flex !important; align-items: center !important;
+                justify-content: center !important; pointer-events: none !important;
             }
             .mshhlpr-elastic-window::after {
-                content: attr(data-window-label);
-                font-size: 12px;
-                font-weight: 700;
-                color: rgba(0, 0, 0, 0.35);
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
+                content: attr(data-window-label); font-size: 12px; font-weight: 700;
+                color: rgba(0, 0, 0, 0.35); text-transform: uppercase; letter-spacing: 0.5px;
             }
-            .BGhWmbpXf3A9L1IQ {
-                overflow: visible !important;
-                position: relative !important;
-                z-index: 50 !important;
-            }
+            .BGhWmbpXf3A9L1IQ { overflow: visible !important; position: relative !important; z-index: 50 !important; }
             .QN6g3q4k70_f36be {
-                display: flex !important;
-                align-items: center !important;
-                gap: 2px !important;
-                overflow: visible !important;
-                position: relative !important;
-                min-width: 0 !important;
-                flex-wrap: nowrap !important;
+                display: flex !important; align-items: center !important; gap: 2px !important;
+                overflow: visible !important; position: relative !important; min-width: 0 !important; flex-wrap: nowrap !important;
             }
             .mshhlpr-day-stats-inline {
-                display: grid !important;
-                grid-template-columns: auto minmax(0, 1fr) !important;
-                align-items: center !important;
-                gap: 2px !important;
-                font-size: 10px !important;
-                font-weight: 700 !important;
-                line-height: 1 !important;
-                user-select: none !important;
-                margin: 0 auto !important;
-                min-width: 0 !important;
-                max-width: 100% !important;
-                flex-shrink: 1 !important;
+                display: grid !important; grid-template-columns: auto minmax(0, 1fr) !important;
+                align-items: center !important; gap: 2px !important; font-size: 10px !important;
+                font-weight: 700 !important; line-height: 1 !important; user-select: none !important;
+                margin: 0 auto !important; min-width: 0 !important; max-width: 100% !important; flex-shrink: 1 !important;
             }
-            .mshhlpr-total-column {
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                min-width: 0 !important;
-                line-height: 1 !important;
-            }
+            .mshhlpr-total-column { display: flex !important; align-items: center !important; justify-content: center !important; min-width: 0 !important; line-height: 1 !important; }
             .mshhlpr-total-mini {
-                color: #2e7d32 !important;
-                font-size: clamp(9px, 0.8vw, 11px) !important;
-                font-weight: 800 !important;
-                white-space: nowrap !important;
-                line-height: 1 !important;
-                transform: scaleY(0.96) !important;
+                color: #2e7d32 !important; font-size: clamp(9px, 0.8vw, 11px) !important;
+                font-weight: 800 !important; white-space: nowrap !important; line-height: 1 !important; transform: scaleY(0.96) !important;
             }
             .mshhlpr-stat-stack {
-                display: flex !important;
-                flex-direction: column !important;
-                align-items: flex-start !important;
-                gap: 0 !important;
-                min-width: 0 !important;
-                max-width: 100% !important;
-                line-height: 1 !important;
+                display: flex !important; flex-direction: column !important; align-items: flex-start !important;
+                gap: 0 !important; min-width: 0 !important; max-width: 100% !important; line-height: 1 !important;
             }
             .mshhlpr-stat-pill {
-                padding: 0 3px !important;
-                border-radius: 3px !important;
-                font-size: clamp(7px, 0.7vw, 9px) !important;
-                white-space: nowrap !important;
-                display: inline-flex !important;
-                align-items: center !important;
-                background: #ffebee !important;
-                color: #c62828 !important;
-                border: 1px dashed #e53935 !important;
-                cursor: help !important;
-                width: fit-content !important;
-                max-width: 100% !important;
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
-                box-sizing: border-box !important;
-                flex-shrink: 1 !important;
-                line-height: 1 !important;
-                min-height: 0 !important;
-                transform: scaleY(0.9) !important;
+                padding: 0 3px !important; border-radius: 3px !important; font-size: clamp(7px, 0.7vw, 9px) !important;
+                white-space: nowrap !important; display: inline-flex !important; align-items: center !important;
+                background: #ffebee !important; color: #c62828 !important; border: 1px dashed #e53935 !important;
+                cursor: help !important; width: fit-content !important; max-width: 100% !important; overflow: hidden !important;
+                text-overflow: ellipsis !important; box-sizing: border-box !important; flex-shrink: 1 !important; line-height: 1 !important;
+                min-height: 0 !important; transform: scaleY(0.9) !important;
             }
             #mshhlpr-global-stat-tooltip {
-                display: none;
-                opacity: 0;
-                position: fixed !important;
-                z-index: 9999999999 !important;
-                background-color: #222 !important;
-                color: #fff !important;
-                border-radius: 6px !important;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
-                font-size: 11px !important;
-                font-weight: 400 !important;
-                line-height: 1.4 !important;
-                padding: 8px 12px !important;
-                pointer-events: none !important;
-                width: max-content !important;
-                max-width: 250px !important;
-                transition: opacity 0.15s ease !important;
-                font-family: inherit !important;
+                display: none; opacity: 0; position: fixed !important; z-index: 9999999999 !important;
+                background-color: #222 !important; color: #fff !important; border-radius: 6px !important;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important; font-size: 11px !important; font-weight: 400 !important;
+                line-height: 1.4 !important; padding: 8px 12px !important; pointer-events: none !important;
+                width: max-content !important; max-width: 250px !important; transition: opacity 0.15s ease !important; font-family: inherit !important;
             }
             .mshhlpr-stat-tooltip::after {
-                content: "" !important;
-                position: absolute !important;
-                bottom: 100% !important;
-                left: 50% !important;
-                margin-left: -5px !important;
-                border: 5px solid transparent !important;
-                border-bottom-color: #222 !important;
+                content: "" !important; position: absolute !important; bottom: 100% !important; left: 50% !important;
+                margin-left: -5px !important; border: 5px solid transparent !important; border-bottom-color: #222 !important;
             }
-            .mshhlpr-stat-pill:hover .mshhlpr-stat-tooltip {
-                visibility: visible !important;
-                opacity: 1 !important;
-            }
+            .mshhlpr-stat-pill:hover .mshhlpr-stat-tooltip { visibility: visible !important; opacity: 1 !important; }
         `;
         document.head.appendChild(css);
     }
