@@ -47,6 +47,13 @@
         const opts = { subject: false, cabinet: false, ndo: false };
         const items = [['subject', 'Название предмета'], ['cabinet', 'Кабинет'], ['ndo', 'Добавить НДО']];
 
+        // Предварительно считываем настройки из памяти, пока пользователь выбирает тумблеры,
+        // чтобы вызов window.open при нажатии кнопки был строго синхронным (Safari не заблокирует поп-ап)
+        let storageData = {};
+        chrome.storage.local.get(['activeTeacher', 'profiles', 'globalBellSchedule'], res => {
+            storageData = res || {};
+        });
+
         ov.innerHTML = `
             <div class="mshhlpr-modal-content" style="width:400px;text-align:center;">
                 <div class="mshhlpr-modal-header" style="padding:14px 18px;display:flex;justify-content:space-between;">
@@ -89,7 +96,7 @@
 
         ov.querySelector('#msh-print-dom').onclick = () => {
             close();
-            printFromDOM({ showSubject: opts.subject, showCabinet: opts.cabinet, showNdo: opts.ndo });
+            printFromDOM({ showSubject: opts.subject, showCabinet: opts.cabinet, showNdo: opts.ndo }, storageData);
         };
     }
 
@@ -112,7 +119,7 @@
             : { className: clean.join(' '), subject: '' };
     }
 
-    async function printFromDOM(options) {
+    function printFromDOM(options, storageData = {}) {
         const days = Array.from(document.querySelectorAll(SEL.day));
         if (!days.length) return alert('На странице не найдено расписание.');
 
@@ -121,11 +128,9 @@
             .filter(t => t.includes('-')))]
             .sort((a, b) => timeToMins(a.split('-')[0]) - timeToMins(b.split('-')[0]));
 
-        let parsedBells = [], activeTeacher = "Учитель";
+        let parsedBells = [], activeTeacher = storageData.activeTeacher || "Учитель";
         try {
-            const res = await new Promise(r => chrome.storage.local.get(['activeTeacher', 'profiles', 'globalBellSchedule'], r));
-            activeTeacher = res.activeTeacher || "Учитель";
-            const bells = res.profiles?.[activeTeacher]?.bellSchedule || res.globalBellSchedule || window.MESH_DEFAULT_BELLS || '';
+            const bells = storageData.profiles?.[activeTeacher]?.bellSchedule || storageData.globalBellSchedule || window.MESH_DEFAULT_BELLS || '';
             bells.split('\n').forEach(line => {
                 const m = line.match(/(?:(\d+)\s*урок\s*)?(\d{1,2}[:.]\d{2})\s*-\s*(\d{1,2}[:.]\d{2})/i);
                 if (m) {
@@ -223,7 +228,10 @@
             }).join('')}</tr>`;
         }
 
-        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Расписание - ${teacherName}</title>
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="color-scheme" content="light">
+        <title>Расписание - ${teacherName}</title>
         <style>
             @page{size:landscape;margin:6mm 8mm}body{font-family:Arial,sans-serif;color:#000;background:#fff;margin:0;box-sizing:border-box}
             .header{text-align:center;margin-bottom:12px}h1{margin:0 0 6px;color:#2e7d32;font-size:24px;font-weight:700}
@@ -247,8 +255,16 @@
             <table><thead><tr><th class="col-num">№</th><th class="col-time">Время</th>${daysToShow.map(d => `<th>${dayNames[d]}</th>`).join('')}</tr></thead><tbody>${rowsHtml}</tbody></table>
         </body></html>`;
 
-        const win = window.open('', '_blank');
-        if (win) { win.document.write(html); win.document.close(); } 
-        else alert('Браузер заблокировал всплывающее окно. Разрешите их в настройках.');
+        // Создаем бинарный Blob-объект и генерируем прямой blob-URL
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const blobUrl = URL.createObjectURL(blob);
+
+        const win = window.open(blobUrl, '_blank');
+        if (win) {
+            // Очищаем URL из памяти браузера через 60 секунд
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+        } else {
+            alert('Браузер заблокировал открытие вкладки. Пожалуйста, разрешите всплывающие окна в настройках браузера.');
+        }
     }
 })();

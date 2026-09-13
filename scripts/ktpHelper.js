@@ -5,7 +5,6 @@ window.initKtpHelper = function () {
 
     const LOG_TAG = '[МЭШ Помогатор][ktpHelper.js]:';
     const BTN_ID = 'mesh-ktp-start-btn';
-    const DELAY = 50; 
     const WAIT_TIMEOUT = 10000;
     const POLL_INTERVAL = 200;
 
@@ -14,25 +13,67 @@ window.initKtpHelper = function () {
         recalcDone: 'Календарный план пересчитан'
     };
 
-    const SELECTORS = {
-        ktpButtons: '.xy2L_nBvEClr4W24CmTA._9oOAfoqlLpn0ax5HVzg.TKVLD5v7YAbPy7SGbTMY',
-        firstInner: '.JD0S8faDvbTwlu4hD6AU.etL8nlITXDbfXbbqvNMB.XuBhQ4oivAc7tf4dgkIP',
-        secondInner: '.oQObijeKjP8J4aK404f4.wsoPWMCLUA9kvEGM5s7q',
-        groupContainer: '.r5winNql6fY6uC1V_TxY',
-        groupName: '.DSXOGdoSiFGKohRuaDDx.ebIBbAN3ZomwnCMWP167._ELGiVRWaoZZRQLlT7eO.E8taxZlPjqlq_tc1djmu.P2cuXfdDwi7u8idHJZ8K',
-        threeDots: '.IXFYIyoCIMf3stleLpdL.OpszQga3QFooUzQoawd0.TL_BH0k_ARpeEUyrcleb',
-        threeDotsBtnInside: '.JKgkd8rcL71CgrtghWQG',
-        notifyMsg: '[data-test-component$="Notify-MessageContainer"]',
-        notifyToast: '[data-test-component$="notifyToastContainer"]'
-    };
-
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-    // Инъекция кнопки в интерфейс
+    // Универсальный клик: работает на ПК (мышь) и на iPad (Touch / WebKit)
+    function smartClick(el) {
+        if (!el) return;
+        
+        const target = el.closest('button') || el;
+        target.scrollIntoView({ block: 'center', inline: 'center' });
+
+        const rect = target.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+
+        // 1. Touch-события для сенсорных экранов iPad
+        if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+            try {
+                const touchObj = new Touch({
+                    identifier: Date.now(),
+                    target: target,
+                    clientX: clientX,
+                    clientY: clientY,
+                    screenX: window.screenX + clientX,
+                    screenY: window.screenY + clientY,
+                    pageX: window.scrollX + clientX,
+                    pageY: window.scrollY + clientY
+                });
+
+                target.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [touchObj], targetTouches: [touchObj], changedTouches: [touchObj] }));
+                target.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [touchObj] }));
+            } catch (e) {}
+        }
+
+        // 2. Мышь и указатель для Chrome / ПК
+        const opts = { bubbles: true, cancelable: true, view: window, button: 0, clientX, clientY };
+        target.dispatchEvent(new PointerEvent('pointerdown', opts));
+        target.dispatchEvent(new MouseEvent('mousedown', opts));
+        target.dispatchEvent(new PointerEvent('pointerup', opts));
+        target.dispatchEvent(new MouseEvent('mouseup', opts));
+
+        // 3. Вызов нативного метода .click() (обязателен для Safari)
+        if (typeof target.click === 'function') {
+            target.click();
+        } else {
+            target.dispatchEvent(new MouseEvent('click', opts));
+        }
+    }
+
+    // Извлечение красивого имени класса из строки таблицы
+    function extractGroupName(row) {
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 3) {
+            return cells[2].textContent.trim() || cells[1].textContent.trim() || cells[0].textContent.trim();
+        }
+        const match = row.textContent.match(/\b\d{1,2}[-_ ]?[А-Яа-яA-Za-z0-9]+(\s+[А-Яа-яЁё]+)?/);
+        return match ? match[0].trim() : (row.textContent.trim().substring(0, 25) || 'Класс');
+    }
+
+    // Инъекция кнопки запуска в интерфейс
     function injectKtpButton() {
         if (!location.href.includes('/teacher/study-process/planning')) return;
 
-        // Находим блок описания подзаголовка
         const descBlock = document.querySelector('div[data-test-component="undefined-subHeaderDescription"]');
         if (!descBlock) return;
         if (document.getElementById(BTN_ID)) return;
@@ -42,8 +83,6 @@ window.initKtpHelper = function () {
         const btn = document.createElement('button');
         btn.id = BTN_ID;
         btn.className = 'mshhlpr-universal-toggle-btn mshhlpr-btn-animated';
-        
-        // Компактные стили с ограничением по ширине и отступом сверху
         btn.style.cssText = `
             margin-top: 14px !important;
             margin-bottom: 6px !important;
@@ -75,41 +114,50 @@ window.initKtpHelper = function () {
             });
         };
 
-        // Размещаем кнопку строго после описания (под текстом внутри общего контейнера)
         descBlock.after(btn);
+    }
+
+    // Раскрытие аккордеона КТП по стабильному дата-атрибуту
+    async function openKtpAccordion() {
+        const ktpCardSvg = document.querySelector('[data-test-component="calAndThemPlanningCard"]');
+        if (ktpCardSvg) {
+            const btn = ktpCardSvg.closest('button') || ktpCardSvg.closest('div[role="button"]') || ktpCardSvg.parentElement;
+            if (btn) {
+                smartClick(btn);
+                await sleep(1200);
+                return;
+            }
+        }
+        // Резервный поиск по тексту
+        const fallbackBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Календарно-тематическое'));
+        if (fallbackBtn) {
+            smartClick(fallbackBtn);
+            await sleep(1200);
+        }
     }
 
     // Основная процедура обработки КТП
     async function startKtpProcess() {
-        console.log(LOG_TAG, 'Запуск автозаполнения (Режим пагинации, ускоренный)...');
+        console.log(LOG_TAG, 'Запуск автозаполнения (Надежные селекторы)...');
         initNotifications();
         let successCount = 0;
         const failGroups = [];
 
-        // Вспомогательная функция для случайной паузы
         const randomSleep = (min, max) => sleep(Math.floor(Math.random() * (max - min + 1)) + min);
 
-        // 1. Открываем внутренние вкладки
-        const firstInner = document.querySelector(SELECTORS.firstInner);
-        if (firstInner) { await sleep(DELAY); mouseClick(firstInner); }
-
-        const secondInner = document.querySelector(SELECTORS.secondInner);
-        if (secondInner) { await sleep(DELAY); mouseClick(secondInner); }
-
-        await sleep(1000);
         await openKtpAccordion(); 
-        await sleep(1500);
+        await sleep(1000);
 
+        // Функция поиска строк классов: берет все <tr> с троеточиями
         const getFreshGroups = () => {
-            const ktpContainers = document.querySelectorAll(SELECTORS.ktpButtons);
-            const container = ktpContainers[2] || document.querySelector('.TKVLD5v7YAbPy7SGbTMY');
-            return container ? container.querySelectorAll(SELECTORS.groupContainer) : [];
+            const dots = document.querySelectorAll('[data-test-component^="menuListClanAndThemPlanning"]');
+            return Array.from(dots).map(d => d.closest('tr')).filter(Boolean);
         };
 
         let page = 1;
         let hasNextPage = true;
 
-        // 2. ЦИКЛ ПО СТРАНИЦАМ
+        // ЦИКЛ ПО СТРАНИЦАМ
         while (hasNextPage) {
             console.log(LOG_TAG, `--- Обработка страницы ${page} ---`);
             
@@ -125,29 +173,28 @@ window.initKtpHelper = function () {
                 break;
             }
 
-            // 3. ЦИКЛ ПО ГРУППАМ
+            // ЦИКЛ ПО КЛАССАМ
             for (let i = 0; i < groupsCount; i++) {
                 let currentGroups = getFreshGroups();
                 if (!currentGroups[i]) {
-                    await sleep(1500);
+                    await sleep(1000);
                     currentGroups = getFreshGroups();
                 }
                 
-                const group = currentGroups[i];
-                if (!group) continue;
+                const groupRow = currentGroups[i];
+                if (!groupRow) continue;
 
-                const nameEl = group.querySelector(SELECTORS.groupName);
-                const groupName = nameEl?.textContent.trim() || 'Без имени';
+                const groupName = extractGroupName(groupRow);
                 let groupSuccess = true;
 
                 try {
-                    await performActionOnGroup(group, "Достроить даты", TEXTS.buildDone);
+                    await performActionOnGroup(groupRow, "Достроить даты", TEXTS.buildDone);
                 } catch (e) {
                     groupSuccess = false;
                 }
 
                 try {
-                    await performActionOnGroup(group, "Пересчитать даты", TEXTS.recalcDone);
+                    await performActionOnGroup(groupRow, "Пересчитать даты", TEXTS.recalcDone);
                 } catch (e) {
                     groupSuccess = false;
                 }
@@ -155,28 +202,22 @@ window.initKtpHelper = function () {
                 if (groupSuccess) {
                     showNotification(`${groupName}: успешно`, true);
                     successCount++;
-                    // УСПЕХ: Делаем микро-паузу от 100 до 500 мс!
-                    await randomSleep(100, 500);
+                    await randomSleep(150, 400);
                 } else {
                     showNotification(`${groupName}: ошибка`, false);
                     failGroups.push(groupName);
-                    // ОШИБКА: Ждем чуть дольше (1.5 сек), чтобы дать сайту "отвиснуть"
-                    await sleep(1500);
+                    await sleep(1200);
                 }
             }
 
-            // 4. ПЕРЕКЛЮЧЕНИЕ ПАГИНАЦИИ
-            // Собираем ВСЕ кнопки "Вперед" на странице
-            const nextBtns = Array.from(document.querySelectorAll('button[data-test-component="undefined-nextPage-iconButtonComponent"]'));
-            
-            // Ищем ту, которая физически видна на экране (offsetParent) и не заблокирована
+            // ПЕРЕКЛЮЧЕНИЕ ПАГИНАЦИИ
+            const nextBtns = Array.from(document.querySelectorAll('button[data-test-component*="nextPage"]'));
             const nextBtn = nextBtns.find(btn => btn.offsetParent !== null && !btn.disabled && !btn.hasAttribute('disabled'));
             
             if (nextBtn) {
-                console.log(LOG_TAG, `Группы на странице ${page} закончились. Кликаем "Вперед"...`);
-                mouseClick(nextBtn);
+                console.log(LOG_TAG, `Классы на странице ${page} обработаны. Переход на страницу ${page + 1}...`);
+                smartClick(nextBtn);
                 page++;
-                // Ждем 2 секунды, чтобы новая порция классов успела загрузиться
                 await sleep(2000); 
             } else {
                 console.log(LOG_TAG, 'Достигнута последняя страница КТП.');
@@ -188,46 +229,27 @@ window.initKtpHelper = function () {
         showFinalModal();
     }
 
-    async function performActionOnGroup(groupElement, menuText, toastText) {
-        const threeDotsContainers = groupElement.querySelectorAll(SELECTORS.threeDots);
-        if (!threeDotsContainers.length) throw new Error('Кнопка меню троеточия не найдена.');
+    async function performActionOnGroup(groupRow, menuText, toastText) {
+        // Находим троеточие в строке класса через точный дата-атрибут
+        const dotsSvg = groupRow.querySelector('[data-test-component^="menuListClanAndThemPlanning"]');
+        if (!dotsSvg) throw new Error('Иконка троеточия не найдена в строке.');
 
-        const lastThreeDots = threeDotsContainers[threeDotsContainers.length - 1];
-        const dotsBtn = lastThreeDots.querySelector(SELECTORS.threeDotsBtnInside);
+        const dotsBtn = dotsSvg.closest('button') || dotsSvg;
 
-        await sleep(DELAY);
-        mouseClick(dotsBtn);
+        await sleep(100);
+        smartClick(dotsBtn);
+
+        // Пауза 200мс, чтобы выпадающее меню успело раскрыться на iPad/ПК
+        await sleep(200);
 
         await clickMenuItem(menuText);
 
         try {
             const toast = await waitForToast(toastText);
-            if (toast.closeBtn) mouseClick(toast.closeBtn);
+            if (toast.closeBtn) smartClick(toast.closeBtn);
         } catch (e) {
             // Игнорируем отсутствие тоста, если система отработала быстро
         }
-    }
-
-    async function openKtpAccordion() {
-        const ktpContainers = document.querySelectorAll(SELECTORS.ktpButtons);
-        if (ktpContainers.length >= 3) {
-            const firstButton = ktpContainers[2].querySelector('button');
-            if (firstButton) {
-                mouseClick(firstButton);
-                await sleep(1000);
-            }
-        }
-    }
-
-    function mouseClick(el) {
-        if (!el) return;
-        el.scrollIntoView({ block: 'center', inline: 'center' });
-        const opts = { bubbles: true, cancelable: true, view: window, button: 0 };
-        el.dispatchEvent(new PointerEvent('pointerdown', opts));
-        el.dispatchEvent(new MouseEvent('mousedown', opts));
-        el.dispatchEvent(new PointerEvent('pointerup', opts));
-        el.dispatchEvent(new MouseEvent('mouseup', opts));
-        el.dispatchEvent(new MouseEvent('click', opts));
     }
 
     function findMenuItemByText(text) {
@@ -239,7 +261,10 @@ window.initKtpHelper = function () {
         const start = Date.now();
         while (Date.now() - start < WAIT_TIMEOUT) {
             const item = findMenuItemByText(text);
-            if (item) { mouseClick(item); return; }
+            if (item) { 
+                smartClick(item.closest('li, button') || item); 
+                return; 
+            }
             await sleep(200);
         }
         throw new Error(`Пункт меню "${text}" не обнаружен.`);
@@ -249,11 +274,11 @@ window.initKtpHelper = function () {
         return new Promise((resolve, reject) => {
             const start = Date.now();
             const timer = setInterval(() => {
-                const spans = Array.from(document.querySelectorAll(SELECTORS.notifyMsg + ' span'))
+                const spans = Array.from(document.querySelectorAll('[data-test-component$="Notify-MessageContainer"] span'))
                     .filter(s => s.textContent.trim() === text);
                 if (spans.length && spans[0].offsetParent) {
                     clearInterval(timer);
-                    const closeBtn = spans[0].closest(SELECTORS.notifyToast)?.querySelector('button');
+                    const closeBtn = spans[0].closest('[data-test-component$="notifyToastContainer"]')?.querySelector('button');
                     resolve({ span: spans[0], closeBtn });
                 }
                 if (Date.now() - start > timeout) { clearInterval(timer); reject(); }
@@ -332,7 +357,7 @@ window.initKtpHelper = function () {
         };
     }
 
-    // --- ДИНАМИЧЕСКИЕ СТИЛИ (для анимации всплывающих окон) ---
+    // --- ДИНАМИЧЕСКИЕ СТИЛИ ---
     function injectStyles() {
         if (document.getElementById('mesh-old-ktp-styles')) return;
         const style = document.createElement('style');
@@ -379,7 +404,6 @@ window.initKtpHelper = function () {
         document.head.appendChild(style);
     }
 
-    // --- Инициализация Observer для отслеживания переходов на страницу КТП ---
     let isScheduled = false;
     const observer = new MutationObserver(() => {
         if (!isScheduled) {

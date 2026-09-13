@@ -33,7 +33,7 @@ const SELECTORS = {
     timeRow: '.wwzPs6NXE0deYHCZ',
     cabinetMarker: '.HEbRoGG3le4LuAeo, .uejslo_PZAjKN3xN',
     cabinetMouseTarget: '.jbafQ8TzmhUujJ8_',
-    popperTooltip: 'div[role="tooltip"].MuiPopper-root',
+    popperTooltip: 'div[role="tooltip"].base-Popper-root',
     popperFallback: 'div[role="tooltip"]',
     popperCabinet: '.HEbRoGG3le4LuAeo, .cLGgUQsXXgqibjIv',
     injectedCab: '.msh-injected-cab',
@@ -897,7 +897,7 @@ window.initScheduleZipper = function () {
             }
 
             /* --- ИЗОЛИРОВАННОЕ СКРЫТИЕ ПОДСКАЗОК УРОКОВ (АКТИВНО ТОЛЬКО ВНУТРИ СЕТКИ РАСПИСАНИЯ) --- */
-            body.mshhlpr-zipping-active:has(.nkAfYFPTIKgFNq2L) div[role="tooltip"].MuiPopper-root:not(:has(input)):not(:has([data-test-component*="iconButtonInPopover"])) {
+            body.mshhlpr-zipping-active:has(.nkAfYFPTIKgFNq2L) div[role="tooltip"].base-Popper-root:not(:has(input)):not(:has([data-test-component*="iconButtonInPopover"])) {
                 opacity: 0 !important; pointer-events: none !important;
                 position: absolute !important; z-index: -9999 !important;
             }
@@ -907,8 +907,8 @@ window.initScheduleZipper = function () {
                 position: relative !important; z-index: 100 !important;
                 pointer-events: auto !important; cursor: pointer !important;
             }
-            div.MuiPopper-root:has(input),
-            div.MuiPopper-root:has([data-test-component*="iconButtonInPopover"]) {
+            div.base-Popper-root:has(input),
+            div.base-Popper-root:has([data-test-component*="iconButtonInPopover"]) {
                 opacity: 1 !important; pointer-events: auto !important; z-index: 999999 !important;
             }
 

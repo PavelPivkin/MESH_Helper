@@ -3,12 +3,25 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="color-scheme" content="light">
     <title>МЭШ Помогатор</title>
     <link rel="stylesheet" href="styles.css">
     <style>
-        /* МИНИМАЛЬНЫЕ ПРАВКИ ДЛЯ ИДЕАЛЬНОГО ВИДА (сброс тяжелых стилей из styles.css) */
+        /* Принудительная фиксация светлой темы для WebKit / Safari на iPad */
+        :root, html, body {
+            color-scheme: light !important;
+            background: #f5f7fa !important;
+            color: #000000 !important;
+            -webkit-tap-highlight-color: transparent !important;
+        }
+
+        /* Шапка с защитой градиента */
         .mshhlpr-popup-header-custom {
             border: none !important;
+            background-color: #2e7d32 !important;
+            background: linear-gradient(135deg, #4caf50, #2e7d32) !important;
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
         }
 
         .mshhlpr-popup-teacher-badge {
@@ -17,6 +30,7 @@
             box-shadow: none !important;
             margin: 12px 16px 8px 16px !important;
             color: #1e5622 !important;
+            background: #ffffff !important;
         }
 
         .mshhlpr-popup-status-container {
@@ -36,10 +50,22 @@
             margin-bottom: 5px;
         }
 
+        /* Защита кнопок-тумблеров от отбеливания на iPad */
         .mshhlpr-universal-toggle-btn {
+            -webkit-appearance: none !important;
+            appearance: none !important;
             border: 1px solid rgba(0, 0, 0, 0.1) !important;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
             margin-bottom: 10px !important;
+            background-color: #2e7d32 !important;
+            background: linear-gradient(135deg, #4caf50, #2e7d32) !important;
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+        }
+
+        .mshhlpr-universal-toggle-text {
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
         }
     </style>
 </head>
@@ -89,7 +115,7 @@
                 </div>
             </label>
 
-            <!-- НОВЫЙ ТУМБЛЕР ТЁМНОЙ ТЕМЫ -->
+            <!-- ТУМБЛЕР ТЁМНОЙ ТЕМЫ -->
             <label class="mshhlpr-universal-toggle-btn">
                 <span class="mshhlpr-universal-toggle-text">Тёмная тема (beta)</span>
                 <div class="mshhlpr-ios-switch">
@@ -98,7 +124,6 @@
                 </div>
             </label>
         </div>
-
 
         <!-- Подвал -->
         <div class="mshhlpr-modal-footer mshhlpr-popup-footer"

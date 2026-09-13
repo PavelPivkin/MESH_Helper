@@ -134,11 +134,44 @@ window.initJournalTools = function () {
         return h;
     }
 
+    // --- АКТУАЛИЗАЦИЯ ОТСУТСТВУЮЩИХ НА СЕГОДНЯ ---
+    async function fetchTodayAttendances(groupId) {
+        if (!groupId) return classCache.absentIds || [];
+        try {
+            const h = await getHeaders();
+            const targetAid = h.aid || "13";
+            const lvl = classCache.classLevelId || classCache.profiles.find(p => p.classLevelId)?.classLevelId;
+            if (!lvl) return classCache.absentIds || [];
+
+            const dt = new Date();
+            const y = dt.getMonth() >= 8 ? dt.getFullYear() : dt.getFullYear() - 1;
+            const todayRu = `${String(dt.getDate()).padStart(2, '0')}.${String(dt.getMonth() + 1).padStart(2, '0')}.${dt.getFullYear()}`;
+            const todayIso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+            const isToday = dStr => (dStr === todayRu || dStr === todayIso);
+
+            const attRes = await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/attendances?group_ids=${groupId}&class_level_id=${lvl}&academic_year_id=${targetAid}&start_at=01.09.${y}&stop_at=31.08.${y + 1}&page=1&per_page=1000`, {
+                headers: { ...h, "aid": targetAid, "x-mes-subsystem": "journalw" }
+            });
+
+            if (attRes.ok) {
+                const att = await attRes.json();
+                if (Array.isArray(att)) {
+                    classCache.absentIds = att
+                        .filter(i => isToday(i.date))
+                        .map(i => String(i.student_profile_id));
+                }
+            }
+        } catch (e) {
+            console.log('[МЭШ][journalTools] Ошибка фонового обновления посещаемости:', e?.message || e);
+        }
+        return classCache.absentIds;
+    }
+
     // --- ФОНОВАЯ ЗАГРУЗКА КЛАССА ---
     async function ensureClassLoaded(groupId) {
         if (!groupId || (classCache.groupId === groupId && (classCache.isLoaded || classCache.isLoading))) return;
         
-        classCache = { groupId, profiles: [], absentIds: [], isLoaded: false, isLoading: true };
+        classCache = { groupId, profiles: [], absentIds: [], isLoaded: false, isLoading: true, classLevelId: null };
         try {
             const h = await getHeaders();
             const d = await (await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/groups/${groupId}`, { headers: { ...h, "x-mes-subsystem": "journalw" } })).json();
@@ -186,34 +219,11 @@ window.initJournalTools = function () {
             classCache.profiles = profs;
             classCache.absentIds = [];
 
-            // Посещаемость (для текущего дня)
+            // Запоминаем уровень класса и первично запрашиваем отсутствующих
             const lvl = profs.find(p => p.classLevelId)?.classLevelId || d.class_level_id;
-            const targetAid = h.aid || "13"; // Гарантируем наличие ID года
-            
-            if (lvl && targetAid) {
-                try {
-                    const dt = new Date();
-                    const y = dt.getMonth() >= 8 ? dt.getFullYear() : dt.getFullYear() - 1;
-                    const todayRu = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
-                    const todayIso = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-                    const isToday = dStr => (dStr === todayRu || dStr === todayIso);
-                    
-                    const attRes = await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/attendances?group_ids=${groupId}&class_level_id=${lvl}&academic_year_id=${targetAid}&start_at=01.09.${y}&stop_at=31.08.${y+1}&page=1&per_page=1000`, { 
-                        headers: { ...h, "aid": targetAid, "x-mes-subsystem": "journalw" } 
-                    });
-                    
-                    if (attRes.ok) {
-                        const att = await attRes.json();
-                        if (Array.isArray(att)) {
-                            // Приводим ID к строке, чтобы избежать несовпадения типов number vs string
-                            classCache.absentIds = att
-                                .filter(i => isToday(i.date))
-                                .map(i => String(i.student_profile_id));
-                        }
-                    }
-                } catch (e) {
-                    console.log('[МЭШ][journalTools] Статус посещаемости:', e?.message || e);
-                }
+            classCache.classLevelId = lvl;
+            if (lvl) {
+                await fetchTodayAttendances(groupId);
             }
             classCache.isLoaded = true;
         } catch (e) { 
@@ -319,19 +329,40 @@ window.initJournalTools = function () {
             document.getElementById('mshhlpr-btn-wheel').onclick = russianRoulette;
         }
 
-        function openListsModal() {
+        async function openListsModal() {
             if (!classCache.isLoaded) return alert('Списки загружаются, подождите пару секунд...');
+
+            // 1. Открываем окно мгновенно с лоадером (Вариант Б)
+            const { ov } = createModal('420px', `
+                <div class="mshhlpr-modal-header"><span>👥 Списки класса</span><button class="mshhlpr-modal-close">×</button></div>
+                <div id="msh-lists-dynamic-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;min-height:260px;">
+                    <div class="mshhlpr-loader-icon">⏳</div>
+                    <div style="font-weight:600;color:#2e7d32;font-size:14px;margin-top:10px;">Сверка отсутствующих с журналом...</div>
+                </div>
+            `);
+
+            // 2. Фоновый точечный запрос актуальных «Н»
+            await fetchTodayAttendances(classCache.groupId);
+
+            // Если модалку закрыли пока шел запрос — выходим
+            if (!document.body.contains(ov)) return;
+
+            // 3. Формируем актуальные списки
             const all = classCache.profiles.map(p => p.name), absIds = classCache.absentIds || [];
             const pres = classCache.profiles.filter(p => !absIds.includes(String(p.id))).map(p => p.name);
             const abs = classCache.profiles.filter(p => absIds.includes(String(p.id))).map(p => p.name), hasAbs = abs.length > 0;
 
+            const contentBox = ov.querySelector('.mshhlpr-modal-content');
+            if (contentBox) contentBox.style.width = hasAbs ? '920px' : '360px';
+
             const cCol = (t, l, c, id) => `<div style="flex:1;display:flex;flex-direction:column;gap:8px"><div style="color:${c};font-weight:700;font-size:13px">${t}</div><textarea readonly style="width:100%;height:260px;font-family:monospace;font-size:12px;border:1px solid #ccc;border-radius:8px;padding:8px;resize:none;background:#fafafa;box-sizing:border-box">${l.join('\n')}</textarea><button id="${id}" style="width:100%;background:#eaeaea;color:#333;border:1px solid #ccc;border-radius:6px;padding:6px;font-weight:700;cursor:pointer;font-size:12px;transition:.2s">📋 Скопировать</button></div>`;
             
-            const { ov } = createModal(hasAbs ? '920px' : '360px', `
-                <div class="mshhlpr-modal-header"><span>👥 Списки класса</span><button class="mshhlpr-modal-close">×</button></div>
-                <div class="mshhlpr-modal-body" style="display:flex;gap:15px;padding:20px">${cCol(`Все ученики (${all.length})`,all,'#2196f3','msh-c-all')}${hasAbs ? cCol(`Присутствуют (${pres.length})`,pres,'#4caf50','msh-c-pres') + cCol(`Отсутствуют (${abs.length})`,abs,'#f44336','msh-c-abs') : ''}</div>
-            `);
-            
+            const dynamicBody = ov.querySelector('#msh-lists-dynamic-body');
+            if (dynamicBody) {
+                dynamicBody.style.cssText = 'display:flex;gap:15px;padding:20px;min-height:auto;';
+                dynamicBody.innerHTML = `${cCol(`Все ученики (${all.length})`,all,'#2196f3','msh-c-all')}${hasAbs ? cCol(`Присутствуют (${pres.length})`,pres,'#4caf50','msh-c-pres') + cCol(`Отсутствуют (${abs.length})`,abs,'#f44336','msh-c-abs') : ''}`;
+            }
+
             const bind = (s, txt) => { 
                 const b = ov.querySelector(s); 
                 if (b) b.onclick = () => { 
@@ -344,20 +375,26 @@ window.initJournalTools = function () {
             if (hasAbs) { bind('#msh-c-pres', pres.join('\n')); bind('#msh-c-abs', abs.join('\n')); }
         }
 
-        function russianRoulette() {
+        async function russianRoulette() {
             if (!classCache.isLoaded) return alert('Списки загружаются...');
-            const KEY = `mesh_roulette_${classCache.groupId}`, past = JSON.parse(sessionStorage.getItem(KEY) || '[]');
+            const KEY = `mesh_roulette_${classCache.groupId}`;
+            const past = JSON.parse(sessionStorage.getItem(KEY) || '[]');
             const recent = past.filter(w => Date.now() - w.time < 2400000).map(w => String(w.id));
-            const absIds = classCache.absentIds || [];
             
-            rouletteState = { participants: [], excluded: [], currentRotation: 0, isSpinning: false };
+            // Запоминаем тех, кто уже выбыл в текущей сессии (чтобы не потерять их при обновлении «Н»)
+            const previouslyExcludedIds = new Set([
+                ...recent,
+                ...rouletteState.excluded.map(p => String(p.id))
+            ]);
+
+            // Пользовательские участники (добавленные через инпут рулетки)
+            const customIn = rouletteState.participants.filter(p => String(p.id).startsWith('c_'));
+            const customOut = rouletteState.excluded.filter(p => String(p.id).startsWith('c_'));
+
+            rouletteState.currentRotation = 0;
+            rouletteState.isSpinning = false;
             
-            // Надежное исключение отсутствующих и недавно выбранных учеников
-            classCache.profiles.forEach(p => {
-                const strId = String(p.id);
-                (absIds.includes(strId) || recent.includes(strId) ? rouletteState.excluded : rouletteState.participants).push(p);
-            });
-            
+            // 1. Открываем окно рулетки сразу
             const { ov } = createModal('90vw', `
                 <div style="display:flex;flex-direction:row;background:#2c3e50;color:#fff;overflow:hidden;height:85vh;max-height:85vh;">
                     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:space-between;position:relative;padding:15px;min-width:0;min-height:0;">
@@ -371,8 +408,8 @@ window.initJournalTools = function () {
                         </div>
 
                         <div style="display:flex;flex-direction:column;align-items:center;gap:10px;flex-shrink:0;">
-                            <div id="mesh-roulette-winner" style="font-size:26px;font-weight:700;color:#ecf0f1;text-align:center;min-height:32px;">Крутите барабан!</div>
-                            <div><button id="mesh-roulette-spin" style="font-size:18px;padding:10px 40px;background-color:#27ae60;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;transition:.2s">Крутить!</button></div>
+                            <div id="mesh-roulette-winner" style="font-size:26px;font-weight:700;color:#ecf0f1;text-align:center;min-height:32px;">⏳ Сверка отсутствующих...</div>
+                            <div><button id="mesh-roulette-spin" style="font-size:18px;padding:10px 40px;background-color:#27ae60;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:not-allowed;opacity:0.6;transition:.2s" disabled>Крутить!</button></div>
                         </div>
                     </div>
                     <div style="width:340px;background:#1a252f;border-left:2px solid #34495e;display:flex;flex-direction:column;padding:15px;flex-shrink:0;">
@@ -387,31 +424,22 @@ window.initJournalTools = function () {
             const canvas = ov.querySelector('#mesh-wheel-canvas'), spinBtn = ov.querySelector('#mesh-roulette-spin'), winnerTxt = ov.querySelector('#mesh-roulette-winner');
             let pending = false;
             const reset = () => { canvas.style.transition = 'none'; rouletteState.currentRotation = 0; canvas.style.transform = `rotate(0deg)`; void canvas.offsetHeight; canvas.style.transition = 'transform 7s cubic-bezier(.1,.9,.2,1)'; pending = false; };
-            ov.querySelector('#mesh-r-add').onclick = () => { const v = ov.querySelector('#mesh-r-custom').value.trim(); if (v) { rouletteState.participants.push({ id: 'c_'+Date.now(), name: v, shortName: v }); ov.querySelector('#mesh-r-custom').value = ''; if (!rouletteState.isSpinning) reset(); upAll(); } };
-            spinBtn.onclick = () => {
-                if (rouletteState.isSpinning || !rouletteState.participants.length) return;
-                if (pending) { upAll(); reset(); }
-                rouletteState.isSpinning = true; winnerTxt.innerText = 'Вращение...'; winnerTxt.style.color = '#fff'; spinBtn.style.opacity = '.5'; spinBtn.style.cursor = 'not-allowed';
-                const wIdx = Math.floor(Math.random() * rouletteState.participants.length), win = rouletteState.participants[wIdx];
-                const arc = 360/rouletteState.participants.length, targetA = (wIdx*arc) + arc/2;
-                rouletteState.currentRotation += 3600;
-                let diff = (360 - targetA)%360 - rouletteState.currentRotation%360;
-                rouletteState.currentRotation += (diff < 0 ? diff+360 : diff) + (Math.random()-.5)*arc*.8;
-                canvas.style.transform = `rotate(${rouletteState.currentRotation}deg)`;
-                setTimeout(() => {
-                    winnerTxt.innerHTML = `🎉 ${win.name} 🎉`; winnerTxt.style.color = '#f1c40f';
-                    if (!String(win.id).startsWith('c_')) { const p = JSON.parse(sessionStorage.getItem(KEY)||'[]'); p.push({id: String(win.id), time:Date.now()}); sessionStorage.setItem(KEY, JSON.stringify(p)); }
-                    rouletteState.excluded.push(rouletteState.participants.splice(wIdx,1)[0]);
-                    rouletteState.isSpinning = false; pending = true; upLists();
-                    spinBtn.style.opacity = '1'; spinBtn.style.cursor = 'pointer'; spinBtn.innerText = rouletteState.participants.length ? 'Крутить дальше' : ''; spinBtn.style.display = rouletteState.participants.length ? 'inline-block' : 'none';
-                }, 7000);
-            };
+            
             function upLists() {
-                document.getElementById('c-in').innerText = rouletteState.participants.length; document.getElementById('c-out').innerText = rouletteState.excluded.length;
+                const cin = document.getElementById('c-in'), cout = document.getElementById('c-out');
+                if (cin) cin.innerText = rouletteState.participants.length; 
+                if (cout) cout.innerText = rouletteState.excluded.length;
                 const li = (p,i,o) => `<li style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;background:rgba(255,255,255,${o?'.05':'.1'});padding:6px 12px;border-radius:6px;font-size:14px;${o?'color:#95a5a6':''}"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.shortName}</span> <button data-idx="${i}" class="msh-rb ${o?'o':'i'}" style="background:0 0;border:none;color:${o?'#2ecc71':'#e74c3c'};cursor:pointer;font-size:14px">${o?'🔄':'❌'}</button></li>`;
-                document.getElementById('mesh-r-in').innerHTML = rouletteState.participants.map((p,i) => li(p,i,0)).join(''); document.getElementById('mesh-r-out').innerHTML = rouletteState.excluded.map((p,i) => li(p,i,1)).join('');
+                const rin = document.getElementById('mesh-r-in'), rout = document.getElementById('mesh-r-out');
+                if (rin) rin.innerHTML = rouletteState.participants.map((p,i) => li(p,i,0)).join(''); 
+                if (rout) rout.innerHTML = rouletteState.excluded.map((p,i) => li(p,i,1)).join('');
                 document.querySelectorAll('.msh-rb').forEach(b => b.onclick = e => { if (rouletteState.isSpinning) return; const o = e.target.classList.contains('o'), idx = e.target.dataset.idx; if(o) rouletteState.participants.push(rouletteState.excluded.splice(idx,1)[0]); else rouletteState.excluded.push(rouletteState.participants.splice(idx,1)[0]); if (!rouletteState.isSpinning) reset(); upAll(); });
-                if (rouletteState.participants.length && !rouletteState.isSpinning) spinBtn.style.display = 'inline-block';
+                if (rouletteState.participants.length && !rouletteState.isSpinning) {
+                    spinBtn.style.display = 'inline-block';
+                    spinBtn.disabled = false;
+                    spinBtn.style.opacity = '1';
+                    spinBtn.style.cursor = 'pointer';
+                }
             }
             function draw(cvs, p) {
                 const ctx = cvs.getContext('2d'), cx = cvs.width/2, r = cx, n = p.length; ctx.clearRect(0,0,cvs.width,cvs.height); ctx.textBaseline = 'middle';
@@ -442,6 +470,55 @@ window.initJournalTools = function () {
                 ctx.beginPath(); ctx.arc(cx,cx,r*.1,0,2*Math.PI); ctx.fillStyle='#ecf0f1'; ctx.fill(); ctx.lineWidth=5; ctx.stroke();
             }
             const upAll = () => { upLists(); draw(canvas, rouletteState.participants); };
+
+            ov.querySelector('#mesh-r-add').onclick = () => { const v = ov.querySelector('#mesh-r-custom').value.trim(); if (v) { rouletteState.participants.push({ id: 'c_'+Date.now(), name: v, shortName: v }); ov.querySelector('#mesh-r-custom').value = ''; if (!rouletteState.isSpinning) reset(); upAll(); } };
+            
+            spinBtn.onclick = () => {
+                if (rouletteState.isSpinning || !rouletteState.participants.length) return;
+                if (pending) { upAll(); reset(); }
+                rouletteState.isSpinning = true; winnerTxt.innerText = 'Вращение...'; winnerTxt.style.color = '#fff'; spinBtn.style.opacity = '.5'; spinBtn.style.cursor = 'not-allowed';
+                const wIdx = Math.floor(Math.random() * rouletteState.participants.length), win = rouletteState.participants[wIdx];
+                const arc = 360/rouletteState.participants.length, targetA = (wIdx*arc) + arc/2;
+                rouletteState.currentRotation += 3600;
+                let diff = (360 - targetA)%360 - rouletteState.currentRotation%360;
+                rouletteState.currentRotation += (diff < 0 ? diff+360 : diff) + (Math.random()-.5)*arc*.8;
+                canvas.style.transform = `rotate(${rouletteState.currentRotation}deg)`;
+                setTimeout(() => {
+                    winnerTxt.innerHTML = `🎉 ${win.name} 🎉`; winnerTxt.style.color = '#f1c40f';
+                    if (!String(win.id).startsWith('c_')) { const p = JSON.parse(sessionStorage.getItem(KEY)||'[]'); p.push({id: String(win.id), time:Date.now()}); sessionStorage.setItem(KEY, JSON.stringify(p)); }
+                    rouletteState.excluded.push(rouletteState.participants.splice(wIdx,1)[0]);
+                    rouletteState.isSpinning = false; pending = true; upLists();
+                    spinBtn.style.opacity = '1'; spinBtn.style.cursor = 'pointer'; spinBtn.innerText = rouletteState.participants.length ? 'Крутить дальше' : ''; spinBtn.style.display = rouletteState.participants.length ? 'inline-block' : 'none';
+                }, 7000);
+            };
+
+            // 2. Фоновый запрос актуальных «Н» без задержки отрисовки
+            await fetchTodayAttendances(classCache.groupId);
+
+            if (!document.body.contains(ov)) return;
+
+            // 3. Формируем участников с сохранением уже выбывших
+            const absIds = classCache.absentIds || [];
+            const part = [], excl = [];
+
+            classCache.profiles.forEach(p => {
+                const strId = String(p.id);
+                // Если ученик уже выбыл ранее (победил/исключен) ИЛИ получил "Н" — отправляем в выбывшие
+                if (previouslyExcludedIds.has(strId) || absIds.includes(strId)) {
+                    excl.push(p);
+                } else {
+                    part.push(p);
+                }
+            });
+
+            rouletteState.participants = [...part, ...customIn];
+            rouletteState.excluded = [...excl, ...customOut];
+
+            winnerTxt.innerText = 'Крутите барабан!';
+            spinBtn.style.cursor = 'pointer';
+            spinBtn.style.opacity = '1';
+            spinBtn.disabled = false;
+
             upAll();
         }
     }

@@ -377,14 +377,12 @@
     // =========================================================================
     // 6. МОНИТОРИНГ СЕТИ И СЕССИИ (АВТОЗАПУСК)
     // =========================================================================
-    /**
-     * Пингует API каждые 2 минуты, выводя Toast-уведомление при разрыве связи.
-     */
     (() => {
         console.log('[МЭШ][tools.js][CheckStatus] Запущен.');
-        let tmr = null, init = true, col = false;
-        const valid = () => { try { return !!chrome?.runtime?.id; } catch { if(tmr) clearInterval(tmr); return false; } };
-        const save = s => valid() && chrome.storage.session.set({ msh_network_status: s }).catch(()=>{});
+        let tmr = null, init = true, isCollapsed = false, outsideTimer = null;
+
+        const valid = () => { try { return !!chrome?.runtime?.id; } catch { clearInterval(tmr); return false; } };
+        const save = s => valid() && chrome.storage.session.set({ msh_network_status: s }).catch(() => {});
 
         const check = async () => {
             if (document.hidden || !valid()) return;
@@ -395,32 +393,117 @@
             const ctrl = new AbortController(), tid = setTimeout(() => ctrl.abort(), 10000);
             try {
                 const { currentBearerToken: t, currentProfileId: p } = await chrome.storage.session.get(['currentBearerToken', 'currentProfileId']);
-                const r = await fetch("https://authedu.mosreg.ru/api/ej/acl/v1/sessions", { method: "POST", headers: { "accept": "application/json", "content-type": "application/json", "x-mes-hostid": "9", "x-mes-roleid": "9", "x-mes-subsystem": "teacherweb", ...(t && {"authorization": `Bearer ${t}`}), ...(p && {"profile-id": p}) }, body: JSON.stringify({ auth_token: t || "" }), signal: ctrl.signal });
-                if ([401, 403].includes(r.status)) s.session = 'expired'; else if (!r.ok) { s.mesh = 'offline'; s.session = 'unknown'; }
-            } catch { s.mesh = 'offline'; s.session = 'unknown'; } finally { clearTimeout(tid); }
+                const r = await fetch("https://authedu.mosreg.ru/api/ej/acl/v1/sessions", {
+                    method: "POST",
+                    headers: { "accept": "application/json", "content-type": "application/json", "x-mes-hostid": "9", "x-mes-roleid": "9", "x-mes-subsystem": "teacherweb", ...(t && {"authorization": `Bearer ${t}`}), ...(p && {"profile-id": p}) },
+                    body: JSON.stringify({ auth_token: t || "" }),
+                    signal: ctrl.signal
+                });
+                if ([401, 403].includes(r.status)) s.session = 'expired';
+                else if (!r.ok) { s.mesh = 'offline'; s.session = 'unknown'; }
+            } catch { s.mesh = 'offline'; s.session = 'unknown'; }
+            finally { clearTimeout(tid); }
             save(s);
+        };
+
+        const injectCss = () => {
+            if (document.getElementById('msh-toast-css')) return;
+            const s = document.createElement('style');
+            s.id = 'msh-toast-css';
+            s.textContent = `
+                #mshhlpr-status-toast { position: fixed !important; bottom: 24px !important; right: 24px !important; z-index: 999999 !important; font-family: 'Segoe UI', Roboto, sans-serif !important; box-sizing: border-box !important; }
+                #mshhlpr-status-toast:not(.msh-col) { width: 320px !important; max-width: calc(100vw - 32px) !important; background: #fff !important; border-radius: 12px !important; border: 1px solid rgba(220,38,38,0.25) !important; box-shadow: 0 10px 30px rgba(0,0,0,0.18) !important; overflow: hidden !important; animation: mshhlprModalShow 0.2s ease-out !important; }
+                #mshhlpr-status-toast.msh-col { width: 44px !important; height: 44px !important; border-radius: 50% !important; background: linear-gradient(135deg, #ef4444, #b91c1c) !important; border: 2px solid #fff !important; box-shadow: 0 4px 16px rgba(220,38,38,0.45) !important; cursor: pointer !important; display: flex !important; align-items: center !important; justify-content: center !important; transition: transform 0.2s !important; user-select: none !important; }
+                #mshhlpr-status-toast.msh-col:hover { transform: scale(1.1) !important; }
+                #mshhlpr-status-toast.msh-col #msh-st-exp { display: none !important; }
+                #mshhlpr-status-toast.msh-col #msh-st-col { display: flex !important; align-items: center !important; justify-content: center !important; width: 100% !important; height: 100% !important; pointer-events: none !important; color: #fff !important; font-size: 20px !important; font-weight: 900 !important; line-height: 1 !important; }
+                #mshhlpr-status-toast:not(.msh-col) #msh-st-col { display: none !important; }
+            `;
+            document.head.appendChild(s);
+        };
+
+        const onOutsideClick = e => {
+            const t = document.getElementById('mshhlpr-status-toast');
+            if (!isCollapsed && t && !t.contains(e.target)) toggleState(true);
+        };
+
+        const toggleState = (collapse) => {
+            isCollapsed = collapse;
+            const t = document.getElementById('mshhlpr-status-toast');
+            if (!t) return;
+            t.classList.toggle('msh-col', isCollapsed);
+            
+            clearTimeout(outsideTimer);
+            document.removeEventListener('pointerdown', onOutsideClick, true);
+
+            if (!isCollapsed) {
+                outsideTimer = setTimeout(() => {
+                    document.addEventListener('pointerdown', onOutsideClick, true);
+                }, 200);
+            }
         };
 
         const updateUI = s => {
             const bad = s.internet !== 'online' || s.mesh !== 'online' || s.session !== 'active';
             let t = document.getElementById('mshhlpr-status-toast');
-            if (!bad) { t?.remove(); col = false; return; }
 
-            const txt = s.internet !== 'online' ? 'Потеряно подключение к Интернету.' : s.mesh !== 'online' ? 'Школьный портал недоступен.' : 'Ваша сессия истекла. Обновите страницу.';
-            if (!t) {
-                t = document.createElement('div'); t.id = 'mshhlpr-status-toast'; t.className = 'mshhlpr-sidebar-container mshhlpr-sidebar-transition mshhlpr-status-red';
-                t.innerHTML = `<div id="msh-st-exp" style="display:flex;flex-direction:column;width:100%;height:100%"><div id="msh-st-hdr" class="mshhlpr-status-red-header"><span>⚠️ Проблема соединения</span><span style="font-size:11px">▼</span></div><div class="mshhlpr-status-red-body"></div></div><div id="msh-st-col" title="Проблемы с соединением">!</div>`;
-                document.body.appendChild(t);
-                t.querySelector('#msh-st-hdr').onclick = e => { e.stopPropagation(); col = true; updateUI(s); };
-                t.onclick = e => { if (t.classList.contains('mshhlpr-sidebar-collapsed')) { e.stopPropagation(); col = false; updateUI(s); } };
+            if (!bad) {
+                clearTimeout(outsideTimer);
+                document.removeEventListener('pointerdown', onOutsideClick, true);
+                t?.remove();
+                isCollapsed = false;
+                return;
             }
-            t.querySelector('.mshhlpr-status-red-body').textContent = txt;
-            t.classList.toggle('mshhlpr-sidebar-collapsed', col); t.classList.toggle('mshhlpr-sidebar-expanded', !col);
+
+            injectCss();
+            const txt = s.internet !== 'online' ? 'Потеряно подключение к Интернету. Проверьте сеть.'
+                      : s.mesh !== 'online' ? 'Школьный портал (МЭШ) временно недоступен или произошёл сбой сервера.'
+                      : 'Ваша сессия авторизации истекла. Пожалуйста, обновите страницу.';
+
+            if (!t) {
+                t = document.createElement('div');
+                t.id = 'mshhlpr-status-toast';
+                t.innerHTML = `
+                    <div id="msh-st-exp">
+                        <div id="msh-st-hdr" title="Нажмите, чтобы свернуть" style="background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;">
+                            <span style="font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px;"><span>⚠️</span><span>МЭШ Помогатор сообщает:</span></span>
+                            <span style="font-size:11px;opacity:.85;">▼</span>
+                        </div>
+                        <div id="msh-st-msg" style="padding:12px 14px;color:#374151;font-size:13px;line-height:1.45;font-weight:500;"></div>
+                    </div>
+                    <div id="msh-st-col" title="МЭШ Помогатор: Проблема соединения (развернуть)">!</div>
+                `;
+                document.body.appendChild(t);
+
+                // Клик по шапке сворачивает
+                t.querySelector('#msh-st-hdr').onclick = e => { 
+                    e.stopPropagation(); 
+                    toggleState(true); 
+                };
+
+                // Клик по всей поверхности круглой кнопки разворачивает
+                t.onclick = e => {
+                    if (isCollapsed) {
+                        e.stopPropagation();
+                        toggleState(false);
+                    }
+                };
+            }
+
+            t.querySelector('#msh-st-msg').textContent = txt;
+            toggleState(isCollapsed);
         };
 
-        chrome.storage.onChanged.addListener((c, a) => { if (valid() && a === 'session' && c.msh_network_status) updateUI(c.msh_network_status.newValue); });
-        window.addEventListener('online', check); window.addEventListener('offline', check); document.addEventListener('visibilitychange', () => !document.hidden && check());
-        check(); tmr = setInterval(check, 120000);
+        chrome.storage.onChanged.addListener((c, a) => {
+            if (valid() && a === 'session' && c.msh_network_status) updateUI(c.msh_network_status.newValue);
+        });
+
+        window.addEventListener('online', check);
+        window.addEventListener('offline', check);
+        document.addEventListener('visibilitychange', () => !document.hidden && check());
+
+        check();
+        tmr = setInterval(check, 120000);
     })();
 
     // =========================================================================
