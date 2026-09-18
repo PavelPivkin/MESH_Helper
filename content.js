@@ -30,6 +30,8 @@
         if (typeof initSelfAnalysis === 'function') initSelfAnalysis();
         if (typeof initNoHomework === 'function') initNoHomework();
         if (typeof initMathSymbols === 'function') initMathSymbols();
+        if (typeof initCheckScheduleTeachers === 'function') initCheckScheduleTeachers();
+
 
         isRunning = true;
     }
