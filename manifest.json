@@ -44,6 +44,9 @@
                 "scripts/mathSymbols.js",
                 "scripts/checkScheduleTeachers.js",
                 "scripts/VPRGenerator/vpr.js",
+                "scripts/autoGradingCore.js",
+                "scripts/autoGrading.js",
+                "scripts/VPRGenerator/vpr.js",
                 "content.js"
             ],
             "run_at": "document_idle"

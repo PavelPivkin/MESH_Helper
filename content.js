@@ -32,6 +32,7 @@
         if (typeof initMathSymbols === 'function') initMathSymbols();
         if (typeof initCheckScheduleTeachers === 'function') initCheckScheduleTeachers();
         if (typeof initVprGenerator === 'function') initVprGenerator();
+        if (typeof initAutoGrading === 'function') initAutoGrading();
 
 
         isRunning = true;
