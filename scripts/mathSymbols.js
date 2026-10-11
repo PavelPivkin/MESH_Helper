@@ -48,14 +48,17 @@ window.initMathSymbols = function () {
     let activeTabIdx = 0;
 
     // =========================================================================
-    // 3. НАДЕЖНАЯ ВСТАВКА ТЕКСТА В REACT TEXTAREA
+    // 3. НАДЕЖНАЯ ВСТАВКА ТЕКСТА В ПОЗИЦИЮ КУРСОРА REACT TEXTAREA
     // =========================================================================
-    function appendText(textarea, textToAppend) {
+    function insertText(textarea, textToInsert) {
         if (!textarea) return;
-        textarea.focus();
 
         const prevVal = textarea.value || '';
-        const newVal = prevVal + textToAppend;
+        const start = textarea.selectionStart ?? prevVal.length;
+        const end = textarea.selectionEnd ?? prevVal.length;
+
+        // Вставляем строго в позицию курсора (или заменяем выделенный фрагмент)
+        const newVal = prevVal.slice(0, start) + textToInsert + prevVal.slice(end);
 
         // Обход React Synthetic Events через нативный прототип сеттера
         const proto = window.HTMLTextAreaElement.prototype;
@@ -75,11 +78,15 @@ window.initMathSymbols = function () {
         // Диспатч событий для пересчёта состояния формы в React
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
         textarea.dispatchEvent(new Event('change', { bubbles: true }));
-        textarea.scrollTop = textarea.scrollHeight;
+
+        // Возвращаем фокус и ставим курсор ровно за вставленным символом
+        textarea.focus();
+        const nextPos = start + textToInsert.length;
+        textarea.setSelectionRange(nextPos, nextPos);
     }
 
     // =========================================================================
-    // 4. ВСПЛЫВАЮЩИЙ ПОПОВЕР НАД КНОПКОЙ (БЕЗ РАЗМЫТИЯ)
+    // 4. ВСПЛЫВАЮЩИЙ ПОПОВЕР НАД КНОПКОЙ
     // =========================================================================
     function togglePopover(btn, textarea) {
         const existing = document.getElementById(POPOVER_ID);
@@ -105,7 +112,11 @@ window.initMathSymbols = function () {
             animation: mshhlprModalShow 0.15s ease-out !important;
         `;
 
-        // Функция аккуратного закрытия окна и очистки слушателя
+        // Предотвращаем потерю фокуса и сброс курсора при кликах по поповеру
+        popover.onmousedown = (e) => {
+            e.preventDefault();
+        };
+
         const closePopover = () => {
             popover.remove();
             document.removeEventListener('pointerdown', onOutsideClick);
@@ -177,13 +188,13 @@ window.initMathSymbols = function () {
                 };
             });
 
-            // Клик по символу (вставка и мгновенное закрытие окна)
+            // Клик по символу (вставка в позицию курсора и закрытие)
             popover.querySelectorAll('.msh-sym-b').forEach(b => {
                 b.onclick = (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    appendText(textarea, b.dataset.sym);
-                    closePopover(); // Закрываем окно сразу после вставки
+                    insertText(textarea, b.dataset.sym);
+                    closePopover();
                 };
             });
         };
@@ -195,14 +206,12 @@ window.initMathSymbols = function () {
         setTimeout(() => document.addEventListener('pointerdown', onOutsideClick), 50);
     }
 
-    // Вычисление координат (над кнопкой)
     function positionPopover(popover, btn) {
         const rect = btn.getBoundingClientRect();
         const popWidth = 360;
         const popHeight = popover.offsetHeight || 230;
 
         let top = rect.top - popHeight - 6;
-        // Если сверху экрана не влезает — отображаем снизу кнопки
         if (top < 10) {
             top = rect.bottom + 6;
         }
@@ -221,7 +230,6 @@ window.initMathSymbols = function () {
     // 5. ВНЕДРЕНИЕ КНОПКИ В СТРОКУ «ОПИСАНИЕ ЗАДАНИЯ»
     // =========================================================================
     function tryInjectButton() {
-        // Ищем textarea ДЗ
         const textarea = document.querySelector(`.${MESH_CLASSES.TEXTAREA_CONTAINER} textarea, textarea.${MESH_CLASSES.TEXTAREA.split('.').join('.')}`);
 
         if (!textarea) {
@@ -236,7 +244,6 @@ window.initMathSymbols = function () {
         const headerSpan = label.querySelector(`span.${MESH_CLASSES.HEADER_SPAN.split('.').join('.')}`) || label.querySelector('span');
         if (!headerSpan || label.querySelector(`#${BTN_ID}`)) return;
 
-        // Превращаем заголовок во flex, прижимая кнопку к правому краю
         headerSpan.style.setProperty('display', 'flex', 'important');
         headerSpan.style.setProperty('align-items', 'center', 'important');
         headerSpan.style.setProperty('justify-content', 'space-between', 'important');
@@ -258,7 +265,6 @@ window.initMathSymbols = function () {
         `;
         btn.innerHTML = `<span class="mshhlpr-universal-toggle-text" style="font-size: 11px !important;">∑ Символы</span>`;
 
-        // Блокируем клик на label, чтобы предотвратить перехват фокуса
         btn.onclick = (e) => {
             e.preventDefault();
             e.stopPropagation();

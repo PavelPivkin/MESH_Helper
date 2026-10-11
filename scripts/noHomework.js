@@ -38,7 +38,7 @@ window.initNoHomework = function () {
             if (el && (el.offsetParent !== null || el.getClientRects().length > 0)) return el;
             await sleep(50);
         }
-        console.error(`${LOG} ❌ [ТАЙМАУТ 5 сек]: Не найден ${name}!`);
+        console.log(`${LOG} ❌ [ТАЙМАУТ 5 сек]: Не найден ${name}!`);
         throw new Error(`Таймаут (5 сек): не найден ${name}`);
     }
 
@@ -64,7 +64,7 @@ window.initNoHomework = function () {
 
                 const groupName = card.querySelector('.cdISCvPwy4Q2oujR > span:first-child, .As5rq3Q894A706VT')?.textContent.trim() || 'Урок';
                 const timeText = card.querySelector('.f98PG7hpc0sIR_eP span')?.textContent.trim() || '';
-                const isMissing = hwBadge.classList.contains('LzfOfTqaSQRzzPQJ86I6') || !!hwBadge.querySelector('.LzfOfTqaSQRzzPQJ86I6');
+                const isMissing = hwBadge.classList.contains('dDPk8Oap464er0y1') || hwBadge.classList.contains('iHwmFfNLyqw9_9Qt');
 
                 // Если у этого класса в этот день уже взят урок — пропускаем (1 день = 1 ДЗ)
                 if (seenClassesToday.has(groupName)) {
@@ -261,22 +261,47 @@ window.initNoHomework = function () {
     async function processLesson(item) {
         console.log(`${LOG} 👉 Выставляем "Нет ДЗ": ${item.group} (${item.day}, ${item.time})`);
 
+        // СТАЛО:
         // 1. Открытие карточки
         const cardTarget = item.card.querySelector('.jbafQ8TzmhUujJ8_') || item.card;
-        hover(cardTarget, true);
+        cardTarget.scrollIntoView({ block: 'center', inline: 'center' });
+        await sleep(60);
 
+        // Эмулируем реальное наведение курсора в центр карточки
+        const rect = cardTarget.getBoundingClientRect();
+        const evOpts = { bubbles: true, cancelable: true, view: window, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+        ['pointerover', 'pointerenter', 'mouseover', 'mouseenter'].forEach(e =>
+            cardTarget.dispatchEvent(new MouseEvent(e, evOpts))
+        );
+
+        // Ищем кнопку «К уроку» именно для НАШЕГО урока
         const toLessonBtn = await waitFor(() => {
-            return Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('К уроку') && b.offsetParent !== null);
+            const poppers = Array.from(document.querySelectorAll('div[role="tooltip"], div[class*="Popper"]'));
+            
+            // Ищем всплывашку, которая содержит название нашего класса или время
+            const myPopper = poppers.reverse().find(p => 
+                (item.group && p.textContent.includes(item.group.split(' ')[0])) ||
+                (item.time && p.textContent.includes(item.time.replace(/^\d+\.\s*/, '')))
+            ) || poppers[0]; // если текст не совпал, берем самое последнее созданное окно
+
+            if (myPopper) {
+                const btn = Array.from(myPopper.querySelectorAll('button')).find(b => b.textContent.includes('К уроку'));
+                if (btn) return btn;
+            }
+
+            // Запасной поиск: берем ПОСЛЕДНЮЮ (самую свежую) кнопку на странице, а не первую
+            const allBtns = Array.from(document.querySelectorAll('button')).filter(b => b.textContent.includes('К уроку') && b.offsetParent !== null);
+            return allBtns[allBtns.length - 1] || null;
         }, 'кнопка "К уроку"');
 
         click(toLessonBtn);
-        hover(cardTarget, false);
         await sleep(STEP_PAUSE);
 
         // 2. Чекбокс «Нет ДЗ»
         const toggleBtn = await waitFor(() => {
-            return document.querySelector('.FDJEFXkDpWhBLZDxnInU.hGtB0oSuryeRiAS2J57Y.Qp8HUr00NXY26hlHOZwb.cbtxLJutW4h15oSu11WO.irDyJbe9qQzkSP_Knnf4.jxILb6lc6cOTJR_ibQi2')
-                || Array.from(document.querySelectorAll('.irDyJbe9qQzkSP_Knnf4.jxILb6lc6cOTJR_ibQi2')).find(e => e.offsetParent !== null);
+            const btn = document.querySelector('button[data-test-component="LILessonInfoHomeworkOpenAbsencesCalendar"]');
+            if (btn && btn.offsetParent !== null) return btn;
+            return Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Без домашнего задания') && b.offsetParent !== null);
         }, 'переключатель "Нет ДЗ"');
 
         click(toggleBtn);
@@ -353,7 +378,7 @@ window.initNoHomework = function () {
                 ui.done('✅ Все ДЗ выставлены!', true);
             }
         } catch (err) {
-            console.error(`${LOG} 💥 Ошибка процесса:`, err);
+            console.log(`${LOG} 💥 Ошибка процесса:`, err);
             ui.done(err.message || 'Ошибка', false);
         } finally {
             isRunning = false;

@@ -298,7 +298,7 @@ window.initScheduleZipper = function () {
         const hdrs = document.querySelectorAll(SELECTORS.summaryHeader + ' ' + SELECTORS.header);
         const emptySat = days.some((d, i) => (hdrs[i]?.textContent || '').toLowerCase().includes('сб') && !d.querySelector(CONFIG.SEL.lesson));
         const emptySun = days.some((d, i) => (hdrs[i]?.textContent || '').toLowerCase().includes('вс') && !d.querySelector(CONFIG.SEL.lesson));
-        
+
         // Проверяем, нужно ли первично определить статус кабинета
         const needCabCheck = sessionStorage.getItem('msh_cabinet_enabled') === null;
         if (!emptySat && !emptySun && !needCabCheck) return;
@@ -308,7 +308,7 @@ window.initScheduleZipper = function () {
         isTogglingWeekend = true;
         btn.click();
         await new Promise(r => setTimeout(r, 50));
-        
+
         document.querySelectorAll(SELECTORS.toggleContainer).forEach(c => {
             const txt = c.textContent.toLowerCase(), inp = c.querySelector('input');
             if (txt.includes('кабинет') && inp) {
@@ -319,40 +319,86 @@ window.initScheduleZipper = function () {
                 (inp || c).click();
             }
         });
-        
+
         await new Promise(r => setTimeout(r, 50));
         btn.click();
         setTimeout(() => { isTogglingWeekend = false; }, 200);
     }
 
-    // --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ПЕРЕХОДА (УРОК / ЖУРНАЛ) ---
+    // --- УНИВЕРСАЛЬНЫЙ ПЕРЕХОД (УРОК / ЖУРНАЛ) ---
+    let isActionClicking = false;
+
+    // Универсальный хелпер клика с координатами центра для React
+    function smartClick(el) {
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        const opts = { bubbles: true, cancelable: true, view: window, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(e => {
+            try { el.dispatchEvent(new PointerEvent(e, opts)); } catch (_) {}
+            el.dispatchEvent(new MouseEvent(e, opts));
+        });
+        if (typeof el.click === 'function') el.click();
+    }
+
     async function executeCardAction(lessonCard, triggerEl, buttonText) {
-        if (triggerEl) triggerEl.style.opacity = '0.5'; // Визуальный отклик
+        if (triggerEl) triggerEl.style.opacity = '0.5';
 
-        const target = lessonCard.querySelector(SELECTORS.cabinetMouseTarget) || lessonCard;
-        const events = ['mouseover', 'mouseenter'];
-        const outEvents = ['mouseout', 'mouseleave'];
-        const clickEvents = ['mousedown', 'mouseup', 'click'];
+        const target = lessonCard.querySelector('.m0Kra9tNIDzJFtd8') || lessonCard;
+        const findBtn = () => Array.from(document.querySelectorAll('.base-Popper-root button, div[role="tooltip"] button, button'))
+            .find(b => b.textContent.trim().includes(buttonText));
 
-        // Эмулируем наведение
-        events.forEach(ev => target.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
+        let btn = findBtn();
+        if (!btn) {
+            isActionClicking = true;
+            smartClick(target);
+            isActionClicking = false;
 
-        // Ждем тултип и кликаем
-        for (let i = 0; i < 15; i++) {
-            await new Promise(r => setTimeout(r, 20));
-            // Ищем нужную кнопку в DOM
-            const targetBtn = Array.from(document.querySelectorAll('button'))
-                .find(b => b.textContent.includes(buttonText) && b.offsetParent !== null);
-            
-            if (targetBtn) {
-                clickEvents.forEach(ev => targetBtn.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true, view: window })));
-                break; // Выходим из цикла после клика
+            for (let i = 0; i < 20 && !btn; i++) {
+                await new Promise(r => setTimeout(r, 40));
+                btn = findBtn();
             }
         }
 
-        // Снимаем наведение и возвращаем прозрачность
-        outEvents.forEach(ev => target.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
+        smartClick(btn);
         if (triggerEl) triggerEl.style.opacity = '1';
+    }
+
+    // --- ДЕЛЕГИРОВАННЫЙ СЛУШАТЕЛЬ КЛИКОВ, ПОДСКАЗОК И ТУМБЛЕРОВ ---
+    if (!window.__meshScheduleJournalBind) {
+        document.addEventListener('mouseover', (e) => {
+            if (!STATE.zip) return;
+            const toJ = e.target.closest(`${SELECTORS.group}, ${SELECTORS.btnMark}, button[data-test-component*="Book"]`);
+            const toL = e.target.closest(`${SELECTORS.btnHw}, button[data-test-component*="Home"]`);
+            if (toJ && !toJ.title) toJ.title = 'Перейти в журнал класса';
+            if (toL && !toL.title) toL.title = 'Перейти к уроку и домашнему заданию';
+        }, true);
+
+        document.addEventListener('change', (e) => {
+            const container = e.target.closest(SELECTORS.toggleContainer);
+            const inp = container?.querySelector('input');
+            if (container?.textContent.toLowerCase().includes('кабинет') && inp) {
+                isCabinetEnabled = inp.checked;
+                sessionStorage.setItem('msh_cabinet_enabled', isCabinetEnabled);
+                runPipeline();
+            }
+        }, true);
+
+        document.addEventListener('click', (e) => {
+            if (!STATE.zip || isActionClicking) return;
+            const card = e.target.closest(SELECTORS.lesson);
+            if (!card) return;
+
+            const toJournal = e.target.closest(`${SELECTORS.group}, ${SELECTORS.btnMark}, button[data-test-component*="Book"]`);
+            const toLesson = e.target.closest(`${SELECTORS.btnHw}, button[data-test-component*="Home"]`);
+
+            if (toJournal || toLesson) {
+                e.preventDefault();
+                e.stopPropagation();
+                executeCardAction(card, toJournal || toLesson, toJournal ? 'К журналу' : 'К уроку');
+            }
+        }, true);
+
+        window.__meshScheduleJournalBind = true;
     }
 
     // --- ДЕЛЕГИРОВАННЫЙ СЛУШАТЕЛЬ КЛИКОВ, ПОДСКАЗОК И ТУМБЛЕРОВ ---
@@ -637,21 +683,24 @@ window.initScheduleZipper = function () {
                 totalLessons++;
                 const grp = l.querySelector(SELECTORS.group)?.textContent.trim() || 'Урок';
 
-                const isMissingHw = hwBadge?.classList.contains('LzfOfTqaSQRzzPQJ86I6') || !!hwBadge?.querySelector('.LzfOfTqaSQRzzPQJ86I6');
-                const isMissingMark = mrkBadge?.classList.contains('LzfOfTqaSQRzzPQJ86I6') || !!mrkBadge?.querySelector('.LzfOfTqaSQRzzPQJ86I6');
+                // Красный домик (dDPk8Oap464er0y1) — отсутствие ДЗ на прошедшем уроке (серый iHwmFfNLyqw9_9Qt игнорируется)
+                const isMissingHw = hwBadge?.classList.contains('dDPk8Oap464er0y1') || !!hwBadge?.querySelector('.dDPk8Oap464er0y1') || hwBadge?.classList.contains('LzfOfTqaSQRzzPQJ86I6');
+
+                // Красная книга (dDPk8Oap464er0y1) — отсутствие оценок на прошедшем уроке (серая iHwmFfNLyqw9_9Qt игнорируется)
+                const isMissingMark = mrkBadge?.classList.contains('dDPk8Oap464er0y1') || !!mrkBadge?.querySelector('.dDPk8Oap464er0y1') || mrkBadge?.classList.contains('LzfOfTqaSQRzzPQJ86I6');
 
                 if (isMissingHw) missingHw.push(grp);
                 if (isMissingMark) missingMarks.push(grp);
 
                 const cdDiv = l.querySelector('.cdISCvPwy4Q2oujR');
                 const spans = cdDiv ? Array.from(cdDiv.querySelectorAll('span')) : [];
-                
+
                 const secondSpanText = spans[1] ? spans[1].textContent.trim().toLowerCase() : '';
-                
-                const isTopicMissing = !spans[1] || 
-                                       secondSpanText.length === 0 || 
-                                       secondSpanText.includes('корпус') || 
-                                       secondSpanText.includes('каб');
+
+                const isTopicMissing = !spans[1] ||
+                    secondSpanText.length === 0 ||
+                    secondSpanText.includes('корпус') ||
+                    secondSpanText.includes('каб');
 
                 if (isTopicMissing) {
                     missingTopic.push(grp);
@@ -763,8 +812,8 @@ window.initScheduleZipper = function () {
         }
 
         // 2. Ищем ТОЛЬКО шапку расписания (по оригинальному классу или наличию шестерёнки настроек недели)
-        const aside = document.querySelector(SELECTORS.scheduleAside) 
-                   || document.querySelector('aside:has(button[data-test-component="scheduleHeaderSettingsView"])');
+        const aside = document.querySelector(SELECTORS.scheduleAside)
+            || document.querySelector('aside:has(button[data-test-component="scheduleHeaderSettingsView"])');
 
         // 3. Защита от утечки: запрещаем внедрение внутрь всплывающих шторок, модалок и диалогов ДЗ
         if (!aside || aside.closest('[role="dialog"], [class*="Drawer"], [class*="Modal"]')) {
