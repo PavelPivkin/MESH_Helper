@@ -12,7 +12,7 @@ window.initJournalTools = function () {
 
     const TEST_BIRTHDAY_DATE = null;
     let lastGroupId = null;
-    let classCache = { groupId: null, profiles: [], absentIds: [], isLoaded: false, isLoading: false };
+    let classCache = { groupId: null, classUnitId: null, className: "", profiles: [], absentIds: [], isLoaded: false, isLoading: false, classLevelId: null };
     let rouletteState = { participants: [], excluded: [], currentRotation: 0, isSpinning: false };
     
     let valCfg = null, valCfgLoading = false; 
@@ -68,7 +68,6 @@ window.initJournalTools = function () {
                         return [{ val, weight }];
                     }
 
-                    // Однократное безопасное скрытие всплывающего окна
                     let silentStyle = document.getElementById('msh-silent-mark-pop');
                     if (!silentStyle) {
                         silentStyle = document.createElement('style');
@@ -85,7 +84,6 @@ window.initJournalTools = function () {
                     
                     markCellDiv.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, cancelable: true }));
                     
-                    // Удаляем стиль с небольшой задержкой, чтобы не вызывать дерганье кадров на macOS
                     clearTimeout(silentMarkTimeout);
                     silentMarkTimeout = setTimeout(() => { 
                         document.getElementById('msh-silent-mark-pop')?.remove(); 
@@ -104,7 +102,6 @@ window.initJournalTools = function () {
 
     const getGroupId = () => location.href.match(/\/journal\/(?:[a-zA-Z-]+\/)?(\d+)/)?.[1];
     
-    // Автоопределение aid из открытой страницы
     function getPageAcademicYearId() {
         try {
             const resources = performance.getEntriesByType('resource');
@@ -120,7 +117,6 @@ window.initJournalTools = function () {
         const { currentBearerToken, currentProfileId, currentAid } = await chrome.storage.session.get(['currentBearerToken', 'currentProfileId', 'currentAid']);
         if (!currentBearerToken) throw new Error('Сессионные токены не найдены');
         
-        // Берем aid из хранилища -> затем из URL/ресурсов -> или страхуемся значением по умолчанию
         const aid = currentAid || getPageAcademicYearId() || new URLSearchParams(location.search).get('academic_year_id') || "13";
         
         const h = { 
@@ -171,11 +167,14 @@ window.initJournalTools = function () {
     async function ensureClassLoaded(groupId) {
         if (!groupId || (classCache.groupId === groupId && (classCache.isLoaded || classCache.isLoading))) return;
         
-        classCache = { groupId, profiles: [], absentIds: [], isLoaded: false, isLoading: true, classLevelId: null };
+        classCache = { groupId, classUnitId: null, className: "", profiles: [], absentIds: [], isLoaded: false, isLoading: true, classLevelId: null };
         try {
             const h = await getHeaders();
             const d = await (await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/groups/${groupId}`, { headers: { ...h, "x-mes-subsystem": "journalw" } })).json();
             
+            classCache.classUnitId = d.class_unit_id || d.class_unit?.id || null;
+            classCache.className = d.class_unit_name || d.name || "";
+
             let profs = [];
 
             // 1. Обычный активный класс
@@ -184,6 +183,14 @@ window.initJournalTools = function () {
                     try {
                         const pData = await (await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles/${id}?with_user_info=true&with_archived_groups=true`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } })).json();
                         const p = pData.user || pData.person || pData;
+                        
+                        if (!classCache.classUnitId && pData?.class_unit?.id) {
+                            classCache.classUnitId = pData.class_unit.id;
+                        }
+                        if (!classCache.className && pData?.class_unit?.name) {
+                            classCache.className = pData.class_unit.name;
+                        }
+
                         return p?.last_name ? { 
                             id, 
                             name: `${p.last_name} ${p.first_name} ${p.middle_name || ''}`.trim(), 
@@ -203,6 +210,9 @@ window.initJournalTools = function () {
                         const rawList = Array.isArray(archList) ? archList : (archList.student_profiles || []);
                         profs = rawList.map(pData => {
                             const p = pData.user || pData.person || pData;
+                            if (!classCache.classUnitId && pData?.class_unit?.id) {
+                                classCache.classUnitId = pData.class_unit.id;
+                            }
                             return p?.last_name ? {
                                 id: pData.id,
                                 name: `${p.last_name} ${p.first_name} ${p.middle_name || ''}`.trim(),
@@ -219,7 +229,6 @@ window.initJournalTools = function () {
             classCache.profiles = profs;
             classCache.absentIds = [];
 
-            // Запоминаем уровень класса и первично запрашиваем отсутствующих
             const lvl = profs.find(p => p.classLevelId)?.classLevelId || d.class_level_id;
             classCache.classLevelId = lvl;
             if (lvl) {
@@ -332,7 +341,6 @@ window.initJournalTools = function () {
         async function openListsModal() {
             if (!classCache.isLoaded) return alert('Списки загружаются, подождите пару секунд...');
 
-            // 1. Открываем окно мгновенно с лоадером (Вариант Б)
             const { ov } = createModal('420px', `
                 <div class="mshhlpr-modal-header"><span>👥 Списки класса</span><button class="mshhlpr-modal-close">×</button></div>
                 <div id="msh-lists-dynamic-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;min-height:260px;">
@@ -341,13 +349,9 @@ window.initJournalTools = function () {
                 </div>
             `);
 
-            // 2. Фоновый точечный запрос актуальных «Н»
             await fetchTodayAttendances(classCache.groupId);
-
-            // Если модалку закрыли пока шел запрос — выходим
             if (!document.body.contains(ov)) return;
 
-            // 3. Формируем актуальные списки
             const all = classCache.profiles.map(p => p.name), absIds = classCache.absentIds || [];
             const pres = classCache.profiles.filter(p => !absIds.includes(String(p.id))).map(p => p.name);
             const abs = classCache.profiles.filter(p => absIds.includes(String(p.id))).map(p => p.name), hasAbs = abs.length > 0;
@@ -381,20 +385,17 @@ window.initJournalTools = function () {
             const past = JSON.parse(sessionStorage.getItem(KEY) || '[]');
             const recent = past.filter(w => Date.now() - w.time < 2400000).map(w => String(w.id));
             
-            // Запоминаем тех, кто уже выбыл в текущей сессии (чтобы не потерять их при обновлении «Н»)
             const previouslyExcludedIds = new Set([
                 ...recent,
                 ...rouletteState.excluded.map(p => String(p.id))
             ]);
 
-            // Пользовательские участники (добавленные через инпут рулетки)
             const customIn = rouletteState.participants.filter(p => String(p.id).startsWith('c_'));
             const customOut = rouletteState.excluded.filter(p => String(p.id).startsWith('c_'));
 
             rouletteState.currentRotation = 0;
             rouletteState.isSpinning = false;
             
-            // 1. Открываем окно рулетки сразу
             const { ov } = createModal('90vw', `
                 <div style="display:flex;flex-direction:row;background:#2c3e50;color:#fff;overflow:hidden;height:85vh;max-height:85vh;">
                     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:space-between;position:relative;padding:15px;min-width:0;min-height:0;">
@@ -492,18 +493,14 @@ window.initJournalTools = function () {
                 }, 7000);
             };
 
-            // 2. Фоновый запрос актуальных «Н» без задержки отрисовки
             await fetchTodayAttendances(classCache.groupId);
-
             if (!document.body.contains(ov)) return;
 
-            // 3. Формируем участников с сохранением уже выбывших
             const absIds = classCache.absentIds || [];
             const part = [], excl = [];
 
             classCache.profiles.forEach(p => {
                 const strId = String(p.id);
-                // Если ученик уже выбыл ранее (победил/исключен) ИЛИ получил "Н" — отправляем в выбывшие
                 if (previouslyExcludedIds.has(strId) || absIds.includes(strId)) {
                     excl.push(p);
                 } else {
@@ -545,7 +542,6 @@ window.initJournalTools = function () {
         const isNewGroup = (valCache.grp !== groupId);
         if (isNewGroup) { valCache.grp = groupId; valState.mode = null; valState.sig = ""; cellMarksCache = {}; }
 
-        // Чтение настроек: память -> хранилище -> авторекомендация
         valCache.classMinMarks = valCache.classMinMarks || {};
         if (valCache.classMinMarks[groupId] === undefined) {
             const s = await new Promise(r => chrome.storage.local.get(['activeTeacher', 'profiles', 'msh_val_cfg'], r));
@@ -675,7 +671,6 @@ window.initJournalTools = function () {
                 const w = r.querySelector('td span[title]')?.closest('div'); 
                 
                 if(w) { 
-                    // При minMarks == 0 подсветка ошибки не срабатывает никогда
                     const isError = valCfg.minMarks > 0 && marksCount < valCfg.minMarks;
                     w.classList.toggle('mshhlpr-bg-error', isError); 
                     w.title = isError ? `Оценок: ${marksCount}. Нужно: ${valCfg.minMarks}` : ''; 
@@ -820,6 +815,135 @@ window.initJournalTools = function () {
         await sleep(200);
     }
 
+    // --- 4.3. ВИДЖЕТ РАСПИСАНИЯ КЛАССА НА СЕГОДНЯ ---
+    const csCache = new Map(), grpCache = new Map();
+    let csAbort = null;
+
+    async function classScheduleWidget(container, groupId) {
+        if (!container || !groupId) return;
+
+        let root = document.getElementById('msh-cs-w');
+        if (!root) {
+            const isCol = localStorage.getItem('msh_cs_col') === 'true';
+            container.insertAdjacentHTML('beforeend', `
+                <div id="msh-cs-w" class="mesh-unified-card" style="margin-top:10px;border-top:1px solid #ccc;padding-top:8px;display:none;">
+                    <div id="msh-cs-h" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none;font-size:12px;font-weight:700;color:#333;">
+                        <span>📅 Уроки класса на сегодня</span>
+                        <span id="msh-cs-ar" style="font-size:9px;color:#888;">${isCol ? '▶' : '▼'}</span>
+                    </div>
+                    <div id="msh-cs-b" style="display:${isCol ? 'none' : 'block'};margin-top:6px;"></div>
+                </div>`);
+
+            root = document.getElementById('msh-cs-w');
+            const h = document.getElementById('msh-cs-h'), b = document.getElementById('msh-cs-b'), ar = document.getElementById('msh-cs-ar');
+            h.onclick = () => {
+                const col = b.style.display !== 'none';
+                b.style.display = col ? 'none' : 'block';
+                ar.textContent = col ? '▶' : '▼';
+                localStorage.setItem('msh_cs_col', col);
+            };
+        }
+
+        // Если этот класс уже отрисован — не перезапрашиваем
+        if (root.dataset.groupId === String(groupId) && root.dataset.loaded === 'true') return;
+        root.dataset.groupId = String(groupId);
+        root.dataset.loaded = 'false';
+
+        const b = document.getElementById('msh-cs-b');
+        if (csAbort) csAbort.abort();
+        csAbort = new AbortController();
+
+        const pad = n => String(n).padStart(2, '0');
+        const now = new Date();
+        const iso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+        const cKey = `${groupId}_${iso}`;
+
+        const draw = (items) => {
+            root.dataset.loaded = 'true';
+            if (!items?.length) {
+                // Если уроков сегодня нет — скрываем виджет вообще
+                root.style.display = 'none';
+                return;
+            }
+            root.style.display = 'block';
+
+            const curM = now.getHours() * 60 + now.getMinutes();
+            const myName = (document.getElementById('activeTeacherName')?.textContent || '').split(' ')[0].toLowerCase();
+            const slots = {};
+            items.forEach(l => (slots[l.num] = slots[l.num] || []).push(l));
+
+            b.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:10.5px;line-height:1.2;">
+                <tbody>${Object.entries(slots).map(([num, list]) => {
+                    const f = list[0], isCur = curM >= f.start && curM <= f.end;
+                    return `<tr style="${isCur ? 'background:#e8f5e9;border-left:3px solid #2e7d32;' : 'border-bottom:1px solid #f1f5f9;'}">
+                        <td style="padding:3px 1px;text-align:center;font-weight:700;color:#555;">${num}</td>
+                        <td style="padding:3px 1px;text-align:center;font-size:9px;color:#64748b;font-family:monospace;">${f.time}${isCur ? '<br><b style="color:#2e7d32;font-size:8px;">● ИДЁТ</b>' : ''}</td>
+                        <td style="padding:3px 4px;">${list.map((l, i) => {
+                            const isMe = myName && l.rawTeacher.toLowerCase().includes(myName);
+                            return `${i ? '<div style="border-top:1px dashed #cbd5e1;margin:2px 0;"></div>' : ''}
+                                <div style="display:flex;justify-content:space-between;gap:2px;">
+                                    <b style="color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${l.sub}</b>
+                                    <span style="font-size:9.5px;font-weight:700;background:#f1f5f9;border:1px solid #cbd5e1;padding:0 3px;border-radius:3px;">${l.room}</span>
+                                </div>
+                                <div style="font-size:9.5px;${isMe ? 'color:#2e7d32;font-weight:700;' : 'color:#555;'}">👤 ${l.teacher} ${isMe ? '<span style="font-size:8.5px;background:#2e7d32;color:#fff;padding:0 3px;border-radius:2px;">Вы</span>' : ''}</div>`;
+                        }).join('')}</td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table>`;
+        };
+
+        if (csCache.has(cKey)) return draw(csCache.get(cKey));
+
+        try {
+            const h = await getHeaders();
+            // Мгновенно берем ID класса (0.1 сек) без ожидания 30 учеников
+            let unitId = (classCache.groupId === groupId && classCache.classUnitId) ? classCache.classUnitId : null;
+            if (!unitId) {
+                const gd = await (await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/groups/${groupId}`, { headers: { ...h, "x-mes-subsystem": "journalw" }, signal: csAbort.signal })).json();
+                unitId = classCache.classUnitId = gd.class_unit_id || gd.class_unit?.id;
+            }
+            if (!unitId) { root.style.display = 'none'; return; }
+
+            const tid = setTimeout(() => csAbort.abort(), 10000);
+            const res = await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/schedule_items?academic_year_id=${h.aid}&class_unit_id=${unitId}&from=${iso}&to=${iso}&with_lesson_info=true&with_rooms_info=true&page=1&per_page=50&original=true`, { headers: { ...h, "x-mes-subsystem": "journalw" }, signal: csAbort.signal });
+            clearTimeout(tid);
+
+            const raw = await res.json();
+            const list = Array.isArray(raw) ? raw : (raw.schedule_items || []);
+
+            if (!list.length) {
+                csCache.set(cKey, []);
+                draw([]);
+                return;
+            }
+
+            // Быстрая подгрузка предметов
+            const missG = [...new Set(list.map(l => l.group_id).filter(id => id && !grpCache.has(id)))];
+            if (missG.length) {
+                const gData = await (await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/groups?group_ids=${missG.join(',')}&academic_year_id=${h.aid}&per_page=100`, { headers: { ...h, "x-mes-subsystem": "journalw" } })).json();
+                (Array.isArray(gData) ? gData : (gData.groups || [])).forEach(g => grpCache.set(g.id, g.subject_name || '—'));
+            }
+
+            const parsed = list.map(l => {
+                const sM = Array.isArray(l.time) ? l.time[0] * 60 + l.time[1] : 0, eM = sM + (l.duration || 40);
+                return {
+                    num: l.study_ordinal || l.lesson_number || 1,
+                    start: sM, end: eM,
+                    time: sM ? `${pad(Math.floor(sM/60))}:${pad(sM%60)}–${pad(Math.floor(eM/60))}:${pad(eM%60)}` : '—',
+                    sub: grpCache.get(l.group_id) || l.subject_name || '—',
+                    room: String(l.room_name || l.room_number || '').replace(/^(каб\.?|кабинет)\s*/i, '').match(/^(\d+[\wа-яА-ЯёЁ-]*)\b/)?.[1] || l.room_name || '—',
+                    rawTeacher: l.teacher_name || '',
+                    teacher: l.teacher_name ? l.teacher_name.split(/\s+/).map((p, i) => i ? p[0] + '.' : p).slice(0, 3).join(' ') : '—'
+                };
+            }).sort((a, b) => a.start - b.start || a.num - b.num);
+
+            csCache.set(cKey, parsed);
+            draw(parsed);
+        } catch (e) {
+            if (e.name !== 'AbortError') root.style.display = 'none';
+        }
+    }
+
     // --- 5. ВИЗУАЛЬНЫЕ УЛУЧШЕНИЯ И ПОДСВЕТКИ ---
     function highlights() {
         if (!window.__meshHLInited) window.__meshHLInited = true;
@@ -838,17 +962,13 @@ window.initJournalTools = function () {
             window.__zenBind = true;
         }
 
-        // Вычисляем сегодняшнюю дату
         const d = new Date();
         const today = TEST_BIRTHDAY_DATE || `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
         const birthdayKids = classCache.profiles.filter(p => p.birthDate && p.birthDate.startsWith(today));
 
         document.querySelectorAll('.f0eMcueVzidF1N9SAffu').forEach(r => {
-            
-            // --- ЛОГИКА ИМЕНИННИКОВ (БЕЗ УНИЧТОЖЕНИЯ TEXTNODE) ---
             const nameEl = r.querySelector('td span[title]');
             if (nameEl && birthdayKids.length > 0) {
-                // Извлекаем только оригинальный текст имени (первый текстовый узел)
                 const currentText = (nameEl.childNodes[0]?.nodeValue || nameEl.textContent).trim();
                 const kid = birthdayKids.find(k => currentText === k.shortName || currentText.startsWith(k.shortName));
                 
@@ -866,7 +986,6 @@ window.initJournalTools = function () {
                 }
             }
 
-            // --- ЛОГИКА ПОДСВЕТКИ ОЦЕНОК ---
             const aS = Array.from(r.querySelectorAll('span')).find(s => /^\s*[2-5],\d{2}\s*$/.test(s.textContent));
             if (aS) {
                 const aV = parseFloat(aS.textContent.replace(',', '.'));
@@ -890,8 +1009,6 @@ window.initJournalTools = function () {
         new MutationObserver((muts) => {
             muts.forEach(m => m.addedNodes.forEach(n => {
                 if (n.nodeType === 1 && n.classList.contains('MuiPopper-root') && n.getAttribute('role') === 'tooltip' && n.textContent.includes('Информация об учащемся')) {
-                    // ВАЖНО: Ни в коем случае не вызываем n.remove()!
-                    // Только глушим отображение и перехват курсора, сохраняя ноду для React:
                     n.style.setProperty('display', 'none', 'important');
                     n.style.setProperty('pointer-events', 'none', 'important');
                     n.style.setProperty('opacity', '0', 'important');
@@ -908,7 +1025,6 @@ window.initJournalTools = function () {
             e.preventDefault(); 
             e.stopPropagation(); 
             
-            // Чистим текст от значка торта, не ломая оригинальный DOM
             const rawText = nameEl.childNodes[0]?.nodeValue || nameEl.textContent;
             openCustomStudentCard(rawText.trim());
         }, true);
@@ -931,7 +1047,6 @@ window.initJournalTools = function () {
 
             if (!classCache.isLoaded) await ensureClassLoaded(groupId);
             
-            // 1. Ищем ученика в основном кэше
             let cachedStudent = classCache.profiles.find(p => 
                 p.name === studentName || 
                 p.shortName === studentName || 
@@ -942,7 +1057,6 @@ window.initJournalTools = function () {
             if (cachedStudent) {
                 studentId = cachedStudent.id;
             } else {
-                // 2. ПРЯМОЙ РЕЗЕРВНЫЙ ПОИСК (для архивных классов)
                 const archRes = await fetch(`https://authedu.mosreg.ru/api/ej/core/teacher/v1/student_profiles?group_ids=${groupId}&with_archived_groups=true&with_user_info=true&per_page=150`, { headers: { ...h, "x-mes-subsystem": "teacherweb" } });
                 if (archRes.ok) {
                     const rawList = await archRes.json();
@@ -1039,6 +1153,7 @@ window.initJournalTools = function () {
                     getMentor(ui.body, gId, ui.autoFitText);
                     classLists(ui.body); 
                     marksValidator(ui.body, gId);
+                    classScheduleWidget(ui.body, gId);
                     lastGroupId = gId;
                 }
                 highlights();
@@ -1052,6 +1167,17 @@ window.initJournalTools = function () {
     });
 
     const initGid = getGroupId();
-    if (initGid) { ensureClassLoaded(initGid); const ui = modalWindows(); if (ui?.body) { getMentor(ui.body, initGid, ui.autoFitText); classLists(ui.body); marksValidator(ui.body, initGid); lastGroupId = initGid; } highlights(); }
+    if (initGid) { 
+        ensureClassLoaded(initGid); 
+        const ui = modalWindows(); 
+        if (ui?.body) { 
+            getMentor(ui.body, initGid, ui.autoFitText); 
+            classLists(ui.body); 
+            marksValidator(ui.body, initGid); 
+            classScheduleWidget(ui.body, initGid);
+            lastGroupId = initGid; 
+        } 
+        highlights(); 
+    }
     obs.observe(document.body, { childList: true, subtree: true });
 };
