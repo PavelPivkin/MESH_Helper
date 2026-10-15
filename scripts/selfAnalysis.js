@@ -303,7 +303,7 @@ window.initSelfAnalysis = function () {
         const tableData = buildTableContent(filteredData, opts.periodType, targetPeriods);
         const c = opts.cVals;
 
-        const subHeadersHtml = targetPeriods.map(p => `<th>${p === "Год" ? "Год" : `${p} ${opts.periodType}`}</th>`).join('');
+        const subHeadersHtml = targetPeriods.map(p => `<th style="white-space: nowrap; width: 1%; padding: 2px 3px;">${p === "Год" ? "Год" : `${p} ${opts.periodType}`}</th>`).join('');
 
         const tableRowsHtml = `
             <tr>
@@ -341,17 +341,21 @@ window.initSelfAnalysis = function () {
 
         if (format === 'pdf') {
             const html = `
-            <html><head><title>Самоанализ</title><style>
-                @page { size: portrait; margin: 15mm 10mm; }
-                body { font-family: 'Times New Roman', serif; padding: 20px; color: #000; line-height: 1.4; }
+            <html><head><title></title><style>
+                /* margin: 0 полностью отключает системную дату, заголовок и about:blank */
+                @page { size: portrait; margin: 0; }
+                body { font-family: 'Times New Roman', serif; padding: 15mm 10mm; margin: 0; color: #000; line-height: 1.4; box-sizing: border-box; }
                 .header { text-align: center; margin-bottom: 25px; }
                 .header h1 { font-size: 16px; text-transform: uppercase; font-weight: bold; margin: 0 0 5px 0; }
                 .btn-print { background: #2e7d32; color: white; border: none; padding: 10px 25px; cursor: pointer; border-radius: 5px; font-size: 15px; font-weight: bold; margin-top: 15px; }
-                table { width: 100%; border-collapse: collapse; text-align: center; font-size: 13px; margin-top: 15px; }
-                th, td { border: 1px solid #000; padding: 8px; vertical-align: middle; }
+                table { width: 100%; border-collapse: collapse; text-align: center; font-size: 12.5px; margin-top: 12px; line-height: 1.15; }
+                th, td { border: 1px solid #000; padding: 2px 3px; vertical-align: middle; }
                 th { background-color: #f5f5f5; font-weight: bold; -webkit-print-color-adjust: exact; }
                 .cell-left { text-align: left; }
-                @media print { .btn-print, .print-note { display: none; } body { padding: 0; } }
+                @media print { 
+                    .btn-print, .print-note { display: none !important; } 
+                    body { padding: 15mm 10mm !important; } 
+                }
             </style></head><body>
                 <div class="header">
                     <h1>Самоанализ деятельности</h1>
@@ -362,7 +366,7 @@ window.initSelfAnalysis = function () {
                 <table>
                     <tbody>
                         <tr><th rowspan="2" style="width:15%">Критерии</th><th rowspan="2" style="width:20%">Показатели</th><th colspan="${targetPeriods.length + 3}">Выполненная работа</th></tr>
-                        <tr><th>Предмет</th><th>Класс</th>${subHeadersHtml}<th>Динамика</th></tr>
+                        <tr><th style="white-space: nowrap; width: 1%; padding: 2px 3px;">Предмет</th><th style="white-space: nowrap; width: 1%; padding: 2px 3px;">Класс</th>${subHeadersHtml}<th style="padding: 2px 4px;">Динамика</th></tr>
                         ${tableRowsHtml}
                     </tbody>
                 </table>
@@ -423,13 +427,15 @@ window.initSelfAnalysis = function () {
 
         let rowsHtml = '';
         classSubjectPairs.forEach(pair => {
-            rowsHtml += `<tr><td style="border: 1px solid #000; padding: 6px; text-align: left;">${pair.subjectName}</td><td style="border: 1px solid #000; padding: 6px;">${pair.className}</td>`;
+            rowsHtml += `<tr>
+                <td style="border: 1px solid #000; padding: 2px 3px; text-align: left; white-space: nowrap; width: 1%;">${pair.subjectName}</td>
+                <td style="border: 1px solid #000; padding: 2px 3px; text-align: center; white-space: nowrap; width: 1%;">${pair.className}</td>`;
 
             const groupRecords = filteredData.filter(item => extractClassName(item.group_name) === pair.className && item.subject_name === pair.subjectName);
             
             targetPeriods.forEach(pNum => {
                 const record = groupRecords.find(item => String(item.period_num) === pNum);
-                rowsHtml += `<td style="border: 1px solid #000; padding: 6px;"><b>${record ? record.percent_quality : 0}%</b></td>`;
+                rowsHtml += `<td style="border: 1px solid #000; padding: 2px 3px; text-align: center; white-space: nowrap; width: 1%;"><b>${record ? record.percent_quality : 0}%</b></td>`;
             });
 
             let dynamicsText = '';
@@ -450,7 +456,8 @@ window.initSelfAnalysis = function () {
                 dynamicsText = parts.join(', ') || '—';
             }
 
-            rowsHtml += `<td style="border: 1px solid #000; padding: 6px; text-align: left;">${dynamicsText}</td></tr>`;
+            // Динамика забирает всё оставшееся пространство листа
+            rowsHtml += `<td style="border: 1px solid #000; padding: 2px 4px; text-align: left;">${dynamicsText}</td></tr>`;
         });
 
         const subjectProgressMap = {};

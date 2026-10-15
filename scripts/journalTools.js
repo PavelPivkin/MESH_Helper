@@ -28,7 +28,7 @@ window.initJournalTools = function () {
 
     const chunkArray = (arr, size) => Array.from({ length: Math.ceil(arr.length / size) }, (_, i) => arr.slice(i * size, i * size + size).join(', ')).join(',\n  ');
 
-    // ЕДИНЫЙ ГЕНЕРАТОР МОДАЛЬНЫХ ОКОН (Оптимизация)
+    // ЕДИНЫЙ ГЕНЕРАТОР МОДАЛЬНЫХ ОКОН
     const createModal = (width, html, overflowY = 'auto') => {
         document.querySelectorAll('.mshhlpr-modal-overlay').forEach(el => el.remove());
         const ov = document.createElement('div'); 
@@ -243,17 +243,56 @@ window.initJournalTools = function () {
         }
     }
 
-    // --- 1. ПАНЕЛЬ UI ---
+    // --- 1. ПАНЕЛЬ UI И АДАПТИВНЫЙ САЙДБАР ---
     function modalWindows() {
         const autoFitText = el => {
             if (!el?.parentElement) return;
-            let maxW = el.parentElement.clientWidth - 24, size = 18; el.style.fontSize = size + 'px';
+            let maxW = el.parentElement.clientWidth - 24, size = 16; el.style.fontSize = size + 'px';
             while (el.scrollWidth > maxW && size > 10) el.style.fontSize = (size -= 0.5) + 'px';
         };
 
         const board = document.querySelector('.GMR0YmfCRS7L64NE4EFF');
         if (!board) return null;
         if (getComputedStyle(board).position === 'static') board.style.position = 'relative';
+
+        // 🎯 ТОЧЕЧНЫЙ ФИКС СКРОЛЛА ПРЯМО ИЗ JS (styles.css менять не нужно!)
+        if (!document.getElementById('mshhlpr-sidebar-scroll-fix')) {
+            const fix = document.createElement('style');
+            fix.id = 'mshhlpr-sidebar-scroll-fix';
+            fix.textContent = `
+                /* Привязываем сайдбар к экрану ноутбука, а не к бесконечной таблице */
+                #mshhlpr-journal-sidebar.mshhlpr-sidebar-expanded {
+                    max-height: calc(100vh - 90px) !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                }
+                /* Разрешаем flexbox сжиматься и скроллиться внутри */
+                #mshhlpr-journal-sidebar #mshhlpr-sidebar-expanded-content {
+                    height: 100% !important;
+                    max-height: 100% !important;
+                    min-height: 0 !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    overflow: hidden !important;
+                }
+                /* Включаем плавный полный скролл до самого низа */
+                #mshhlpr-journal-sidebar #mshhlpr-sidebar-body {
+                    flex: 1 1 auto !important;
+                    min-height: 0 !important;
+                    max-height: none !important;
+                    overflow-y: auto !important;
+                    scrollbar-width: thin !important;
+                }
+                #mshhlpr-journal-sidebar #mshhlpr-sidebar-body::-webkit-scrollbar {
+                    width: 5px;
+                }
+                #mshhlpr-journal-sidebar #mshhlpr-sidebar-body::-webkit-scrollbar-thumb {
+                    background-color: #cbd5e1;
+                    border-radius: 4px;
+                }
+            `;
+            document.head.appendChild(fix);
+        }
 
         const toggleSidebar = (collapse) => {
             const el = document.getElementById('mshhlpr-journal-sidebar'); if (!el) return;
@@ -536,7 +575,7 @@ window.initJournalTools = function () {
         return Math.max(1, Math.round((dates.length / months) / 4));
     }
 
-    // --- 4.1. ВАЛИДАТОР ОЦЕНОК ---
+    // --- 4.1. ВАЛИДАТОР ОЦЕНОК (ПРОСЧЕТ И ИНТЕРФЕЙС) ---
     async function marksValidator(container, groupId) {
         const weeklyLessons = detectWeeklyLessons(), recommendedMin = weeklyLessons === 1 ? 3 : 5;
         const isNewGroup = (valCache.grp !== groupId);
@@ -563,7 +602,7 @@ window.initJournalTools = function () {
         };
 
         if (!document.getElementById('mesh-validator-ui')) {
-            container.insertAdjacentHTML('beforeend', `
+            const valHtml = `
                 <div id="mesh-validator-ui" class="mesh-unified-card" style="margin-top:10px;border-top:1px solid #ccc;padding-top:10px">
                     <div id="msh-val-head" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-weight:700;color:#333;font-size:13px">
                         <div>Проверка оценок</div>
@@ -579,7 +618,15 @@ window.initJournalTools = function () {
                         <div id="msh-val-hint" style="display:${getHint(currentMin) ? 'block' : 'none'};background:#fff3cd;color:#856404;border:1px solid #ffeeba;border-radius:6px;padding:6px 8px;font-size:11px;line-height:1.35;margin-top:6px;">${getHint(currentMin)}</div>
                     </div>
                 </div>
-            `);
+            `;
+
+            // Если виджет расписания уже случайно вставлен, вставляем ПЕРЕД ним
+            const csWidget = document.getElementById('msh-cs-w');
+            if (csWidget) {
+                csWidget.insertAdjacentHTML('beforebegin', valHtml);
+            } else {
+                container.insertAdjacentHTML('beforeend', valHtml);
+            }
 
             const minInp = document.getElementById('msh-val-min');
             const saveAndApply = async (newVal) => {
@@ -825,14 +872,22 @@ window.initJournalTools = function () {
         let root = document.getElementById('msh-cs-w');
         if (!root) {
             const isCol = localStorage.getItem('msh_cs_col') === 'true';
-            container.insertAdjacentHTML('beforeend', `
+            const html = `
                 <div id="msh-cs-w" class="mesh-unified-card" style="margin-top:10px;border-top:1px solid #ccc;padding-top:8px;display:none;">
                     <div id="msh-cs-h" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none;font-size:12px;font-weight:700;color:#333;">
                         <span>📅 Уроки класса на сегодня</span>
                         <span id="msh-cs-ar" style="font-size:9px;color:#888;">${isCol ? '▶' : '▼'}</span>
                     </div>
                     <div id="msh-cs-b" style="display:${isCol ? 'none' : 'block'};margin-top:6px;"></div>
-                </div>`);
+                </div>`;
+
+            // Строгое позиционирование: ПОД валидатором оценок
+            const valEl = document.getElementById('mesh-validator-ui');
+            if (valEl && valEl.parentElement === container) {
+                valEl.insertAdjacentHTML('afterend', html);
+            } else {
+                container.insertAdjacentHTML('beforeend', html);
+            }
 
             root = document.getElementById('msh-cs-w');
             const h = document.getElementById('msh-cs-h'), b = document.getElementById('msh-cs-b'), ar = document.getElementById('msh-cs-ar');
@@ -842,9 +897,14 @@ window.initJournalTools = function () {
                 ar.textContent = col ? '▶' : '▼';
                 localStorage.setItem('msh_cs_col', col);
             };
+        } else {
+            // Если элементы уже были созданы, гарантируем порядок в DOM
+            const valEl = document.getElementById('mesh-validator-ui');
+            if (valEl && root.previousElementSibling !== valEl && valEl.parentElement === container) {
+                valEl.after(root);
+            }
         }
 
-        // Если этот класс уже отрисован — не перезапрашиваем
         if (root.dataset.groupId === String(groupId) && root.dataset.loaded === 'true') return;
         root.dataset.groupId = String(groupId);
         root.dataset.loaded = 'false';
@@ -861,7 +921,6 @@ window.initJournalTools = function () {
         const draw = (items) => {
             root.dataset.loaded = 'true';
             if (!items?.length) {
-                // Если уроков сегодня нет — скрываем виджет вообще
                 root.style.display = 'none';
                 return;
             }
@@ -872,21 +931,51 @@ window.initJournalTools = function () {
             const slots = {};
             items.forEach(l => (slots[l.num] = slots[l.num] || []).push(l));
 
-            b.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:10.5px;line-height:1.2;">
+            b.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.25;">
                 <tbody>${Object.entries(slots).map(([num, list]) => {
                     const f = list[0], isCur = curM >= f.start && curM <= f.end;
-                    return `<tr style="${isCur ? 'background:#e8f5e9;border-left:3px solid #2e7d32;' : 'border-bottom:1px solid #f1f5f9;'}">
-                        <td style="padding:3px 1px;text-align:center;font-weight:700;color:#555;">${num}</td>
-                        <td style="padding:3px 1px;text-align:center;font-size:9px;color:#64748b;font-family:monospace;">${f.time}${isCur ? '<br><b style="color:#2e7d32;font-size:8px;">● ИДЁТ</b>' : ''}</td>
-                        <td style="padding:3px 4px;">${list.map((l, i) => {
+                    
+                    // Проверяем, деление ли это на группы с одинаковым предметом
+                    const firstSub = list[0].sub.trim().toLowerCase();
+                    const isSameSubGroup = list.length > 1 && list.every(l => l.sub.trim().toLowerCase() === firstSub);
+
+                    let lessonCellHtml = '';
+
+                    if (isSameSubGroup) {
+                        // Одинаковый предмет: пишем название ОДИН раз сверху, а ниже компактно учителей и кабинеты
+                        lessonCellHtml = `
+                            <div style="font-weight:700;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px;">
+                                ${list[0].sub}
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:2px;">
+                                ${list.map(l => {
+                                    const isMe = myName && l.rawTeacher.toLowerCase().includes(myName);
+                                    return `
+                                        <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
+                                            <span style="font-size:9.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${isMe ? 'color:#2e7d32;font-weight:700;' : 'color:#555;'}">
+                                                👤 ${l.teacher} ${isMe ? '<span style="font-size:8px;background:#2e7d32;color:#fff;padding:0 2px;border-radius:2px;">Вы</span>' : ''}
+                                            </span>
+                                            <span style="font-size:9px;font-weight:700;background:#f1f5f9;border:1px solid #cbd5e1;padding:0 3px;border-radius:3px;white-space:nowrap;flex-shrink:0;">${l.room}</span>
+                                        </div>`;
+                                }).join('')}
+                            </div>`;
+                    } else {
+                        // Разные предметы или один учитель
+                        lessonCellHtml = list.map((l, i) => {
                             const isMe = myName && l.rawTeacher.toLowerCase().includes(myName);
                             return `${i ? '<div style="border-top:1px dashed #cbd5e1;margin:2px 0;"></div>' : ''}
                                 <div style="display:flex;justify-content:space-between;gap:2px;">
                                     <b style="color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${l.sub}</b>
-                                    <span style="font-size:9.5px;font-weight:700;background:#f1f5f9;border:1px solid #cbd5e1;padding:0 3px;border-radius:3px;">${l.room}</span>
+                                    <span style="font-size:9.5px;font-weight:700;background:#f1f5f9;border:1px solid #cbd5e1;padding:0 3px;border-radius:3px;white-space:nowrap;">${l.room}</span>
                                 </div>
-                                <div style="font-size:9.5px;${isMe ? 'color:#2e7d32;font-weight:700;' : 'color:#555;'}">👤 ${l.teacher} ${isMe ? '<span style="font-size:8.5px;background:#2e7d32;color:#fff;padding:0 3px;border-radius:2px;">Вы</span>' : ''}</div>`;
-                        }).join('')}</td>
+                                <div style="font-size:9.5px;${isMe ? 'color:#2e7d32;font-weight:700;' : 'color:#555;'}">👤 ${l.teacher} ${isMe ? '<span style="font-size:8.5px;background:#2e7d32;color:#fff;padding:0 2px;border-radius:2px;">Вы</span>' : ''}</div>`;
+                        }).join('');
+                    }
+
+                    return `<tr style="${isCur ? 'background:#e8f5e9;border-left:3px solid #2e7d32;' : 'border-bottom:1px solid #f1f5f9;'}">
+                        <td style="padding:3px 2px;text-align:center;font-weight:700;color:#555;width:18px;">${num}</td>
+                        <td style="padding:3px 2px;text-align:center;font-size:9px;color:#64748b;font-family:monospace;width:68px;">${f.time}${isCur ? '<br><b style="color:#2e7d32;font-size:8px;">● ИДЁТ</b>' : ''}</td>
+                        <td style="padding:3px 4px;">${lessonCellHtml}</td>
                     </tr>`;
                 }).join('')}</tbody>
             </table>`;
@@ -896,7 +985,6 @@ window.initJournalTools = function () {
 
         try {
             const h = await getHeaders();
-            // Мгновенно берем ID класса (0.1 сек) без ожидания 30 учеников
             let unitId = (classCache.groupId === groupId && classCache.classUnitId) ? classCache.classUnitId : null;
             if (!unitId) {
                 const gd = await (await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/groups/${groupId}`, { headers: { ...h, "x-mes-subsystem": "journalw" }, signal: csAbort.signal })).json();
@@ -917,7 +1005,6 @@ window.initJournalTools = function () {
                 return;
             }
 
-            // Быстрая подгрузка предметов
             const missG = [...new Set(list.map(l => l.group_id).filter(id => id && !grpCache.has(id)))];
             if (missG.length) {
                 const gData = await (await fetch(`https://authedu.mosreg.ru/api/ej/plan/teacher/v1/groups?group_ids=${missG.join(',')}&academic_year_id=${h.aid}&per_page=100`, { headers: { ...h, "x-mes-subsystem": "journalw" } })).json();
@@ -1004,7 +1091,7 @@ window.initJournalTools = function () {
         });
     }
 
-    // --- 6. КАРТОЧКА УЧЕНИКА (БЕЗОПАСНАЯ ВЕРСИЯ ДЛЯ REACT) ---
+    // --- 6. КАРТОЧКА УЧЕНИКА ---
     if (!window.__tooltipKillerInited) {
         new MutationObserver((muts) => {
             muts.forEach(m => m.addedNodes.forEach(n => {
@@ -1144,7 +1231,7 @@ window.initJournalTools = function () {
     const obs = new MutationObserver(() => {
         if (isScheduled || isMuted) return; 
         isScheduled = true;
-        requestAnimationFrame(() => {
+        requestAnimationFrame(async () => {
             const gId = getGroupId();
             if (gId) {
                 ensureClassLoaded(gId);
@@ -1152,7 +1239,7 @@ window.initJournalTools = function () {
                 if (ui?.body) {
                     getMentor(ui.body, gId, ui.autoFitText);
                     classLists(ui.body); 
-                    marksValidator(ui.body, gId);
+                    await marksValidator(ui.body, gId); // Строго перед расписанием
                     classScheduleWidget(ui.body, gId);
                     lastGroupId = gId;
                 }
@@ -1171,11 +1258,13 @@ window.initJournalTools = function () {
         ensureClassLoaded(initGid); 
         const ui = modalWindows(); 
         if (ui?.body) { 
-            getMentor(ui.body, initGid, ui.autoFitText); 
-            classLists(ui.body); 
-            marksValidator(ui.body, initGid); 
-            classScheduleWidget(ui.body, initGid);
-            lastGroupId = initGid; 
+            (async () => {
+                getMentor(ui.body, initGid, ui.autoFitText); 
+                classLists(ui.body); 
+                await marksValidator(ui.body, initGid); // Строго перед расписанием
+                classScheduleWidget(ui.body, initGid);
+                lastGroupId = initGid; 
+            })();
         } 
         highlights(); 
     }
