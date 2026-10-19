@@ -37,7 +37,7 @@ MORSE_TABLE = {
     "Э": "••−••","Ю": "••−−", "Я": "•−•−"
 }
 
-def find_all_decodings(encoded_str, code_to_char, max_limit=25):
+def find_all_decodings(encoded_str, code_to_char, max_limit=500):
     memo = {}
     def backtrack(idx):
         if idx == len(encoded_str):

@@ -69,6 +69,9 @@
         .toolbar select { background: #fff; color: #1e293b; border: 1px solid rgba(0,0,0,0.2); padding: 5px 10px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; outline: none; }
         .toolbar-check { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.18); padding: 5px 10px; border-radius: 6px; cursor: pointer; user-select: none; font-size: 12.5px; }
         .toolbar-check input { margin: 0; width: 15px; height: 15px; cursor: pointer; accent-color: #1b5e20; }
+        .toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+        .toolbar-overflow-warn { display: none; align-items: center; background: #dc2626; color: #fff; border: 1.5px solid #fecaca; padding: 6px 12px; border-radius: 8px; font-size: 12.5px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(220,38,38,0.45); white-space: nowrap; }
+        .toolbar-overflow-warn:hover { background: #b91c1c; }
         .btn-print { background: #fff !important; color: #1b5e20 !important; border: none !important; padding: 7px 18px; border-radius: 8px; font-size: 13.5px; font-weight: 800; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.18); }
         .viewport { padding: 32px 10px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
         .sheet-container { width: calc(297mm * var(--zoom-scale)); height: calc(210mm * var(--zoom-scale)); position: relative; margin-bottom: 18px; flex-shrink: 0; }
@@ -231,14 +234,14 @@
                     <option value="1.0">100%</option>
                 </select>
             </div>
-            <div style="margin-left: auto;">
+            <div class="toolbar-right">
+                <div id="toolbarOverflowWarn" class="toolbar-overflow-warn"></div>
                 <button type="button" id="printBtn" class="btn-print">🖨️ Печать</button>
             </div>
         </div>
         <div class="viewport" id="viewportArea"></div>
     </div>
 
-    
     <iframe id="pythonSandboxFrame" src="pythonSandbox.html" style="display: none;"></iframe>
     <script src="vpr.js"></script>
 </body>

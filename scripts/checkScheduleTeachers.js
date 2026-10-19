@@ -631,7 +631,7 @@ window.initCheckScheduleTeachers = function () {
 
     // === ВНЕДРЕНИЕ КНОПОК РЯДОМ ===
     function injectButtons() {
-        if (!location.href.includes(TARGET_PATH)) {
+        if (location.pathname.replace(/\/$/, '') !== TARGET_PATH) {
             document.getElementById(BTN_TEACHERS_ID)?.remove();
             document.getElementById(BTN_CLASSES_ID)?.remove();
             return;

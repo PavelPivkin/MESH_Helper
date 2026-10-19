@@ -24,7 +24,7 @@ window.initExportPupils = function () {
 
     // === 2. ВНЕДРЕНИЕ КНОПКИ В ASIDE ===
     function injectExportButton() {
-        if (!location.href.includes(TARGET_PATH)) {
+        if (location.pathname.replace(/\/$/, '') !== TARGET_PATH) {
             document.getElementById(SEL.btnId)?.remove();
             return;
         }

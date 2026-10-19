@@ -227,102 +227,193 @@ window.initScheduleZipper = function () {
 
 
 
-    async function getCabinetSilently(cardInner) {
-        if (!cardInner) return null;
-        const cardId = cardInner.getAttribute('data-test-component') || '';
+    let cabQueue = [];
+    let isFetchingCabs = false;
 
-        const existingCab = cardInner.querySelector(SELECTORS.cabinetMarker);
-        if (existingCab) {
-            const txt = existingCab.textContent.trim();
-            if (txt) {
-                if (cardId) cabCache[cardId] = txt;
-                return txt;
-            }
-        }
-
-        if (cardId && cabCache[cardId]) return cabCache[cardId];
-
-        // БЕЗОПАСНОЕ СКРЫТИЕ ДЛЯ REACT (без display: none)
-        const silentStyle = document.createElement('style');
-        silentStyle.id = 'msh-silent-popper-hide';
-        silentStyle.textContent = 'div[role="tooltip"] { opacity: 0 !important; pointer-events: none !important; position: absolute !important; z-index: -9999 !important; }';
-        document.head.appendChild(silentStyle);
-
-        const target = cardInner.querySelector(SELECTORS.cabinetMouseTarget) || cardInner;
-        ['mouseover', 'mouseenter'].forEach(ev => target.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
-
-        await new Promise(r => setTimeout(r, 20));
-
-        let foundCab = null;
-        const popper = document.querySelector(SELECTORS.popperTooltip) || document.querySelector(SELECTORS.popperFallback);
-        if (popper) {
-            const cabEl = popper.querySelector(SELECTORS.popperCabinet);
-            if (cabEl) foundCab = cabEl.textContent.trim();
-        }
-
-        ['mouseout', 'mouseleave'].forEach(ev => target.dispatchEvent(new MouseEvent(ev, { bubbles: true, cancelable: true })));
-        silentStyle.remove();
-
-        if (foundCab) {
-            if (cardId) cabCache[cardId] = foundCab;
-            return foundCab;
-        }
-
-        return null;
+    function getCardCacheKey(cardElement) {
+        const weekKey = document.querySelector(`${SELECTORS.summaryHeader} ${SELECTORS.dateLabel}`)?.textContent.trim() || '';
+        const dayEl = cardElement.closest(SELECTORS.day);
+        const dayIdx = dayEl ? Array.from(document.querySelectorAll(SELECTORS.day)).indexOf(dayEl) : 0;
+        const time = cardElement.querySelector(SELECTORS.time)?.textContent.trim() || '';
+        const grp = cardElement.querySelector(SELECTORS.group)?.textContent.trim() || '';
+        return `${weekKey}|${dayIdx}|${time}|${grp}`;
     }
 
-    async function ensureCabinetRendered(cardElement) {
-        if (!isCabinetEnabled) return;
-
-        const cardInner = cardElement.querySelector(SELECTORS.cardInner);
-        if (!cardInner) return;
-
-        const timeRow = cardInner.querySelector(SELECTORS.timeRow);
+    function renderCabBadge(timeRow, cabText) {
         if (!timeRow || timeRow.querySelector(SELECTORS.cabinetMarker)) return;
-
-        const cabText = await getCabinetSilently(cardInner);
-        if (!cabText || !timeRow.isConnected || timeRow.querySelector(SELECTORS.cabinetMarker) || !isCabinetEnabled) return;
+        const nativeSpanCls = document.querySelector(`${SELECTORS.lesson} .HEbRoGG3le4LuAeo:not(.msh-injected-cab *)`)?.className
+            || 'cTksrwhuCsYCcVfd kU0O9jo34U9_wBuB PvBZ8CQOMlocEX_A vD8EUWGQh0crxIHu RUVWygkjW7Yo9Xlj HEbRoGG3le4LuAeo';
 
         const cabDiv = document.createElement('div');
         cabDiv.className = 'uejslo_PZAjKN3xN msh-injected-cab';
         cabDiv.innerHTML = `
             <div class="cLGgUQsXXgqibjIv">
-                <span class="DSXOGdoSiFGKohRuaDDx yXVdBhUh4InVs1L3OfeG gLNmyfBdelwfEPxsTJQs okdclYuKZ5sgSQTkOTUh E8taxZlPjqlq_tc1djmu HEbRoGG3le4LuAeo">${cabText}</span>
+                <span class="${nativeSpanCls}">${cabText}</span>
             </div>
         `;
         timeRow.appendChild(cabDiv);
     }
 
-    async function checkAndSyncEmptyWeekends(days) {
-        if (isTogglingWeekend || !STATE.zip) return;
-        const hdrs = document.querySelectorAll(SELECTORS.summaryHeader + ' ' + SELECTORS.header);
-        const emptySat = days.some((d, i) => (hdrs[i]?.textContent || '').toLowerCase().includes('сб') && !d.querySelector(CONFIG.SEL.lesson));
-        const emptySun = days.some((d, i) => (hdrs[i]?.textContent || '').toLowerCase().includes('вс') && !d.querySelector(CONFIG.SEL.lesson));
+    function ensureCabinetRendered(cardElement) {
+        if (!isCabinetEnabled) return;
 
-        // Проверяем, нужно ли первично определить статус кабинета
+        const cardInner = cardElement.querySelector(SELECTORS.cardInner);
+        const timeRow = cardInner?.querySelector(SELECTORS.timeRow);
+        if (!cardInner || !timeRow || timeRow.querySelector(SELECTORS.cabinetMarker)) return;
+
+        const key = getCardCacheKey(cardElement);
+        if (cabCache[key]) {
+            renderCabBadge(timeRow, cabCache[key]);
+            return;
+        }
+
+        if (!cabQueue.some(item => item.key === key)) {
+            cabQueue.push({ key, cardInner, timeRow });
+            processCabQueue();
+        }
+    }
+
+    async function processCabQueue() {
+        if (isFetchingCabs || !cabQueue.length) return;
+        isFetchingCabs = true;
+
+        // Ждем, если сейчас автоматически переключается суббота или учитель сам открыл настройки
+        while (isTogglingWeekend || document.querySelector(SELECTORS.toggleContainer)) {
+            await new Promise(r => setTimeout(r, 50));
+        }
+
+        let silentStyle = document.getElementById('msh-silent-popper-hide');
+        if (!silentStyle) {
+            silentStyle = document.createElement('style');
+            silentStyle.id = 'msh-silent-popper-hide';
+            silentStyle.textContent = '.MAvpC5h97oUOHMjn, div[role="tooltip"]:not(:has(input)) { opacity: 0 !important; pointer-events: none !important; }';
+            document.head.appendChild(silentStyle);
+        }
+
+        while (cabQueue.length > 0) {
+            // Если учитель в этот момент открыл меню настроек — прерываем автоклики
+            if (isTogglingWeekend || document.querySelector(SELECTORS.toggleContainer)) break;
+
+            const { key, cardInner, timeRow } = cabQueue.shift();
+            if (!cardInner.isConnected || !isCabinetEnabled) continue;
+
+            if (cabCache[key]) {
+                renderCabBadge(timeRow, cabCache[key]);
+                continue;
+            }
+
+            isProcessingDom = true;
+            isActionClicking = true;
+            smartClick(cardInner);
+            isActionClicking = false;
+
+            let foundCab = null;
+            for (let i = 0; i < 8; i++) {
+                await new Promise(r => setTimeout(r, 25));
+                const popCab = document.querySelector('.MAvpC5h97oUOHMjn .HEbRoGG3le4LuAeo, div[role="tooltip"] .HEbRoGG3le4LuAeo');
+                if (popCab && popCab.textContent.trim()) {
+                    foundCab = popCab.textContent.trim();
+                    break;
+                }
+            }
+
+            smartClick(document.body);
+            await new Promise(r => setTimeout(r, 25));
+            if (document.querySelector('.MAvpC5h97oUOHMjn')) {
+                isActionClicking = true;
+                smartClick(cardInner);
+                isActionClicking = false;
+                await new Promise(r => setTimeout(r, 25));
+            }
+
+            if (foundCab) {
+                cabCache[key] = foundCab;
+                if (timeRow.isConnected && isCabinetEnabled) {
+                    renderCabBadge(timeRow, foundCab);
+                }
+            }
+        }
+
+        silentStyle?.remove();
+        isFetchingCabs = false;
+        setTimeout(() => { isProcessingDom = false; }, 50);
+    }
+
+    let lastCheckedWeek = null;
+
+    async function checkAndSyncEmptyWeekends(days) {
+        if (!STATE.zip) { lastCheckedWeek = null; return; }
+        // Если уже идет автопереключение ИЛИ панель открыта самим учителем — не вмешиваемся
+        if (isTogglingWeekend || !days.length || document.querySelector(SELECTORS.toggleContainer)) return;
+
+        const weekKey = document.querySelector(`${SELECTORS.summaryHeader} ${SELECTORS.dateLabel}`)?.textContent.trim() || '';
+        if (!weekKey || weekKey === lastCheckedWeek) return;
+
+        const getWeekendState = () => {
+            const hdrs = Array.from(document.querySelectorAll(`${SELECTORS.summaryHeader} ${SELECTORS.header}`));
+            const curDays = Array.from(document.querySelectorAll(SELECTORS.day));
+            const satIdx = hdrs.findIndex(h => h.textContent.toLowerCase().includes('сб'));
+            const sunIdx = hdrs.findIndex(h => h.textContent.toLowerCase().includes('вс'));
+            return {
+                hasSat: satIdx !== -1,
+                emptySat: satIdx !== -1 && !curDays[satIdx]?.querySelector(CONFIG.SEL.lesson),
+                emptySun: sunIdx !== -1 && !curDays[sunIdx]?.querySelector(CONFIG.SEL.lesson)
+            };
+        };
+
+        let { hasSat, emptySat, emptySun } = getWeekendState();
         const needCabCheck = sessionStorage.getItem('msh_cabinet_enabled') === null;
-        if (!emptySat && !emptySun && !needCabCheck) return;
+
+        if (hasSat && !emptySat && !emptySun && !needCabCheck) {
+            lastCheckedWeek = weekKey;
+            return;
+        }
 
         const btn = document.querySelector(SELECTORS.settingsBtn);
         if (!btn) return;
+
         isTogglingWeekend = true;
+        lastCheckedWeek = weekKey;
+
         btn.click();
         await new Promise(r => setTimeout(r, 50));
 
-        document.querySelectorAll(SELECTORS.toggleContainer).forEach(c => {
-            const txt = c.textContent.toLowerCase(), inp = c.querySelector('input');
-            if (txt.includes('кабинет') && inp) {
-                isCabinetEnabled = inp.checked;
-                sessionStorage.setItem('msh_cabinet_enabled', isCabinetEnabled);
+        const setToggle = (keyword, targetChecked) => {
+            document.querySelectorAll(SELECTORS.toggleContainer).forEach(c => {
+                const txt = c.textContent.toLowerCase(), inp = c.querySelector('input');
+                if (txt.includes('кабинет') && inp) {
+                    isCabinetEnabled = inp.checked;
+                    sessionStorage.setItem('msh_cabinet_enabled', isCabinetEnabled);
+                }
+                if (txt.includes(keyword) && inp && inp.checked !== targetChecked) {
+                    (inp || c).click();
+                }
+            });
+        };
+
+        if (!hasSat) {
+            setToggle('суббот', true);
+            for (let i = 0; i < 10; i++) {
+                await new Promise(r => setTimeout(r, 30));
+                ({ hasSat, emptySat, emptySun } = getWeekendState());
+                if (hasSat) break;
             }
-            if (((emptySat && txt.includes('суббот')) || (emptySun && txt.includes('воскрес'))) && inp?.checked) {
-                (inp || c).click();
-            }
-        });
+        }
+
+        if (emptySat) setToggle('суббот', false);
+        if (emptySun) setToggle('воскрес', false);
 
         await new Promise(r => setTimeout(r, 50));
-        btn.click();
-        setTimeout(() => { isTogglingWeekend = false; }, 200);
+
+        // Закрываем панель ТОЛЬКО если она сейчас открыта
+        if (document.querySelector(SELECTORS.toggleContainer)) {
+            (document.querySelector(SELECTORS.settingsBtn) || btn).click();
+        }
+
+        setTimeout(() => {
+            isTogglingWeekend = false;
+            runPipeline();
+        }, 150);
     }
 
     // --- УНИВЕРСАЛЬНЫЙ ПЕРЕХОД (УРОК / ЖУРНАЛ) ---

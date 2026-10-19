@@ -225,14 +225,38 @@
             : `<div class="variant-header"><div class="variant-left">Вариант ${num}</div><div class="variant-right">${student} &nbsp;&nbsp;&nbsp; Класс: ${cls}</div></div>`;
 
         const checkOverflows = () => {
+            let overflowCount = 0;
+            let maxExMm = 0;
+            let firstOverflowSheet = null;
+
             document.querySelectorAll('.page:not(.keys-card)').forEach(p => {
                 const badge = p.querySelector('.overflow-badge');
                 if (!badge) return;
                 let ex = 0;
                 p.querySelectorAll('.column-block').forEach(c => { ex = Math.max(ex, c.scrollHeight - c.clientHeight); });
-                badge.style.display = ex > 2 ? 'block' : 'none';
-                if (ex > 2) badge.innerText = `⚠️ Не влезает: +${Math.round((ex / 96) * 25.4)} мм — уменьшите кегль или включите двустороннюю печать!`;
+                const isOver = ex > 2;
+                badge.style.display = isOver ? 'block' : 'none';
+                if (isOver) {
+                    const mm = Math.max(1, Math.round((ex / 96) * 25.4));
+                    badge.innerText = `⚠️ Не влезает: +${mm} мм — уменьшите кегль или включите двустороннюю печать!`;
+                    overflowCount++;
+                    maxExMm = Math.max(maxExMm, mm);
+                    if (!firstOverflowSheet) firstOverflowSheet = p.closest('.sheet-container');
+                }
             });
+
+            const topWarn = $('toolbarOverflowWarn');
+            if (topWarn) {
+                if (overflowCount > 0) {
+                    topWarn.style.display = 'inline-flex';
+                    topWarn.innerText = `⚠️ Не влезает (${overflowCount} л., до +${maxExMm} мм)`;
+                    topWarn.title = 'Нажмите, чтобы перейти к проблемному листу';
+                    topWarn.onclick = () => firstOverflowSheet?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    topWarn.style.display = 'none';
+                    topWarn.onclick = null;
+                }
+            }
         };
 
         const rebuildPages = () => {
@@ -447,13 +471,18 @@
             for (let s = 0; s < students.length; s++) {
                 const tasks = [];
                 for (const key of keys) {
-                    try {
-                        const taskObj = JSON.parse(await runPythonCode(pyCodeCache.get(key), '--generate'));
-                        taskObj._key = key;
-                        tasks.push(taskObj);
-                    } catch {
-                        tasks.push({ task: 'Ошибка генерации задания', answer: '—', _key: key });
+                    let generated = null;
+                    for (let attempt = 0; attempt < 3; attempt++) {
+                        try {
+                            const taskObj = JSON.parse(await runPythonCode(pyCodeCache.get(key), '--generate'));
+                            if (taskObj && taskObj.task) {
+                                taskObj._key = key;
+                                generated = taskObj;
+                                break;
+                            }
+                        } catch {}
                     }
+                    tasks.push(generated || { task: 'Ошибка генерации задания', answer: '—', _key: key });
                 }
                 variants.push({ variantNum: s + 1, student: students[s], tasks });
             }
