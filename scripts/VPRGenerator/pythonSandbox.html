@@ -1,0 +1,105 @@
+<!--
+  =============================================================================
+  Модуль: pythonSandbox.html
+  Описание: Изолированная песочница (Manifest V3 Sandbox) для выполнения 
+            оригинальных Python-скриптов заданий (task_*.py) через Brython.
+  Принцип работы:
+    1. До инициализации Brython подменяет IndexedDB и Storage безопасными 
+       заглушками, предотвращая ошибки SecurityError в изолированном фрейме.
+    2. Принимает код .py файла и аргумент (--meta / --generate) через postMessage.
+    3. Перехватывает sys.stdout и возвращает JSON-результат в родительское окно.
+  =============================================================================
+-->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Python Sandbox</title>
+    <script>
+        (() => {
+            try {
+                const fakeIDB = {
+                    open: () => {
+                        const req = {};
+                        setTimeout(() => req.onerror && req.onerror(new Event('error')), 0);
+                        return req;
+                    }
+                };
+                const dummyStore = { getItem: () => null, setItem: () => {}, removeItem: () => {}, clear: () => {} };
+                Object.defineProperty(window, 'indexedDB', { get: () => fakeIDB, configurable: true });
+                Object.defineProperty(window, 'webkitIndexedDB', { get: () => fakeIDB, configurable: true });
+                Object.defineProperty(window, 'localStorage', { get: () => dummyStore, configurable: true });
+                Object.defineProperty(window, 'sessionStorage', { get: () => dummyStore, configurable: true });
+            } catch (e) {}
+
+            const queue = [];
+            let isReady = false;
+
+            const execItem = ({ reqId, code, arg, source }) => {
+                try {
+                    const res = JSON.parse(window.__runPythonTask(code, arg));
+                    source.postMessage({ type: 'PY_RESULT', reqId, ...res }, '*');
+                } catch (err) {
+                    source.postMessage({ type: 'PY_RESULT', reqId, ok: false, error: err.message || String(err) }, '*');
+                }
+            };
+
+            window.addEventListener('message', (e) => {
+                if (!e.data) return;
+                if (e.data.type === 'PY_PING') {
+                    if (isReady) e.source.postMessage({ type: 'PY_SANDBOX_READY' }, '*');
+                    return;
+                }
+                if (e.data.type === 'PY_EXEC') {
+                    const item = { reqId: e.data.reqId, code: e.data.code, arg: e.data.arg, source: e.source };
+                    isReady ? execItem(item) : queue.push(item);
+                }
+            });
+
+            window.addEventListener('DOMContentLoaded', () => {
+                if (document.body) document.body.onload = () => {};
+                try { if (typeof brython === 'function') brython({ indexedDB: false, cache: false, debug: 0 }); } catch (e) {}
+
+                const timer = setInterval(() => {
+                    if (typeof window.__runPythonTask === 'function') {
+                        clearInterval(timer);
+                        isReady = true;
+                        if (window.parent !== window) window.parent.postMessage({ type: 'PY_SANDBOX_READY' }, '*');
+                        while (queue.length) execItem(queue.shift());
+                    }
+                }, 20);
+            });
+        })();
+    </script>
+    <script src="../libs/brython.min.js"></script>
+    <script src="../libs/brython_stdlib.js"></script>
+</head>
+<body>
+    <script type="text/python">
+from browser import window
+import sys, json, os, random
+
+os.urandom = lambda n: bytes([random.randint(0, 255) for _ in range(n)])
+
+class _Buffer:
+    def __init__(self): self.parts = []
+    def write(self, s): self.parts.append(str(s))
+    def flush(self): pass
+    def reconfigure(self, *a, **kw): pass
+    def getvalue(self): return "".join(self.parts)
+
+def run_task_code(py_code, arg_flag):
+    buf, old_out, old_argv = _Buffer(), sys.stdout, list(sys.argv)
+    try:
+        sys.stdout, sys.argv = buf, ["task.py", arg_flag]
+        exec(py_code, {"__name__": "__main__", "__file__": "task.py"})
+        return json.dumps({"ok": True, "stdout": buf.getvalue().strip()}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
+    finally:
+        sys.stdout, sys.argv = old_out, old_argv
+
+window.__runPythonTask = run_task_code
+    </script>
+</body>
+</html>

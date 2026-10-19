@@ -19,6 +19,10 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('[МЭШ][background.js] Получено сообщение:', request);
+    if (request && request.action === 'openVprGenerator') {
+        chrome.tabs.create({ url: chrome.runtime.getURL('scripts/VPRGenerator/vpr.html') });
+        sendResponse({ ok: true });
+    }
     return true; 
 });
 
